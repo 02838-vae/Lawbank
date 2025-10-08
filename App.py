@@ -4,7 +4,7 @@ import re
 from docx import Document
 
 # =========================
-# ⚙️ Cấu hình trang
+# ⚙️ Cấu hình giao diện
 # =========================
 st.set_page_config(page_title="Ngân hàng câu hỏi luật", page_icon="⚖️", layout="wide")
 st.title("⚖️ NGÂN HÀNG CÂU HỎI KIỂM TRA LUẬT (SOP)")
@@ -19,49 +19,74 @@ def load_questions(docx_path):
         st.error(f"❌ Không thể đọc file Word: {e}")
         return []
 
+    # Lấy toàn bộ text (bỏ dòng trống)
     text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
-    question_blocks = re.split(r'\n(?=\d+\.\s)', text)
+
+    # Tách thành từng khối câu hỏi theo mẫu xuất hiện của đáp án "a." hoặc "*a."
+    # Regex: tìm đoạn bắt đầu trước a. hoặc *a.
+    raw_blocks = re.split(r'(?=\*?a\.\s)', text)
 
     questions = []
-    for block in question_blocks:
-        lines = [l.strip() for l in block.split("\n") if l.strip()]
-        if len(lines) < 2:
+    buffer = ""
+    for part in raw_blocks:
+        part = part.strip()
+        if not part:
             continue
 
-        question_text = lines[0]
+        # Nếu không có đáp án nào trong đoạn => gộp với đoạn trước
+        if not re.search(r'[a-cA-C]\.', part):
+            buffer += " " + part
+            continue
+
+        # Nếu buffer đang có nội dung, xử lý câu trước đó
+        if buffer:
+            questions.append(buffer.strip())
+            buffer = ""
+        buffer = part
+
+    # Thêm phần cuối
+    if buffer:
+        questions.append(buffer.strip())
+
+    parsed = []
+    for block in questions:
+        # Tách câu hỏi và đáp án
+        parts = re.split(r'(?=[a-cA-C]\.\s|\*[a-cA-C]\.\s)', block)
+        if len(parts) < 2:
+            continue
+
+        question_text = parts[0].strip()
         options = []
         correct = None
 
-        for l in lines[1:]:
-            match = re.match(r"(\*?)([a-zA-Z])\.\s*(.*)", l)
+        for p in parts[1:]:
+            match = re.match(r"(\*?)([a-cA-C])\.\s*(.*)", p.strip())
             if match:
                 is_correct = bool(match.group(1))
-                text = match.group(3).strip()
+                text = match.group(3)
                 options.append(text)
                 if is_correct:
                     correct = text
             else:
-                # Gộp dòng phụ (Ref.) vào câu hỏi, trừ khi là câu kế tiếp
-                if not re.match(r'^\d+\.\s', l):
-                    question_text += " " + l
+                question_text += " " + p.strip()
 
         if options and correct:
-            questions.append({
+            parsed.append({
                 "question": question_text,
                 "options": options,
                 "answer": correct
             })
 
-    return questions
+    return parsed
 
 # =========================
-# 🧩 TẢI DỮ LIỆU
+# 🔹 TẢI DỮ LIỆU
 # =========================
 questions = load_questions("bank.docx")
 TOTAL = len(questions)
 
 if TOTAL == 0:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx.")
+    st.error("❌ Không đọc được câu hỏi nào. Có thể file Word dùng numbering tự động.")
     st.stop()
 
 st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi.")
@@ -70,7 +95,7 @@ st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi.")
 # 🎮 LOGIC THI 20 CÂU MỖI LƯỢT
 # =========================
 if "remaining_questions" not in st.session_state:
-    st.session_state.remaining_questions = list(range(TOTAL))  # danh sách index câu hỏi còn lại
+    st.session_state.remaining_questions = list(range(TOTAL))
 if "current_batch" not in st.session_state:
     st.session_state.current_batch = random.sample(st.session_state.remaining_questions, min(20, len(st.session_state.remaining_questions)))
     for i in st.session_state.current_batch:
@@ -100,7 +125,7 @@ if st.session_state.index >= len(st.session_state.current_batch):
             st.session_state.answered = False
             st.rerun()
     else:
-        st.info("✅ Bạn đã hoàn thành toàn bộ 502 câu hỏi!")
+        st.info("✅ Bạn đã hoàn thành toàn bộ câu hỏi!")
         if st.button("🔄 Làm lại từ đầu"):
             st.session_state.remaining_questions = list(range(TOTAL))
             st.session_state.current_batch = random.sample(st.session_state.remaining_questions, 20)
@@ -119,13 +144,9 @@ if st.session_state.index >= len(st.session_state.current_batch):
 current_q_index = st.session_state.current_batch[st.session_state.index]
 q = questions[current_q_index]
 
-# Hiển thị câu hỏi rõ ràng, tách dòng
-st.markdown(f"### 🧭 Câu {st.session_state.index + 1}/20\n\n{q['question']}\n\n---")
-
-# Hiển thị đáp án mỗi dòng tách biệt
+st.markdown(f"### 🧭 Câu {st.session_state.index + 1}/20\n\n**{q['question']}**\n\n---")
 choice = st.radio("👉 Chọn đáp án của bạn:", q["options"], index=None, key=f"radio_{st.session_state.index}")
 
-# Nút xác nhận
 if st.button("✅ Xác nhận"):
     st.session_state.answered = True
     if choice == q["answer"]:
@@ -134,7 +155,6 @@ if st.button("✅ Xác nhận"):
     else:
         st.error(f"❌ Sai rồi — Đáp án đúng là: **{q['answer']}**")
 
-# Nút tiếp theo
 if st.session_state.answered and st.button("➡️ Câu tiếp theo"):
     st.session_state.index += 1
     st.session_state.answered = False
