@@ -8,7 +8,7 @@ import math
 # =========================
 st.set_page_config(page_title="Ngân hàng câu hỏi luật", page_icon="⚖️", layout="wide")
 
-# CSS căn giữa toàn bộ trang và định dạng dễ nhìn
+# CSS căn giữa toàn bộ nội dung + style đẹp mắt
 st.markdown("""
     <style>
     .main {
@@ -24,12 +24,12 @@ st.markdown("""
         font-weight: normal;
     }
     .stButton>button {
-        width: 50%;
+        width: 60%;
         margin: 10px auto;
         display: block;
         border-radius: 10px;
         font-size: 18px;
-        padding: 0.5rem 1rem;
+        padding: 0.6rem 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -51,38 +51,41 @@ def load_questions(docx_path):
     current_q = {"question": "", "options": [], "answer": None}
 
     for line in paragraphs:
-        # Regex nhận diện đáp án (linh hoạt hơn: a-d, A-D, *, khoảng trắng)
-        if re.match(r"^\s*\*?\s*[a-dA-D]\.\s", line):
-            match = re.match(r"^\s*(\*?)\s*([a-dA-D])\.\s*(.*)", line)
+        # Regex nhận diện đáp án (a-d, A-D, có thể *, :, -, ., khoảng trắng)
+        if re.match(r"^\s*[\*]?\s*[a-dA-D]\s*[\.\-–:]\s+", line):
+            match = re.match(r"^\s*([\*]?)\s*([a-dA-D])[\.\-–:]\s*(.*)", line)
             if match:
                 is_correct = bool(match.group(1))
                 text = match.group(3).strip()
-                current_q["options"].append(text)
-                if is_correct:
-                    current_q["answer"] = text
+                if text:
+                    current_q["options"].append(text)
+                    if is_correct:
+                        current_q["answer"] = text
         else:
-            # Nếu gặp dòng mới sau khi có đáp án => lưu câu trước
+            # Nếu xuất hiện câu mới sau phần đáp án
             if current_q["options"]:
-                if current_q["question"] and current_q["answer"]:
+                if current_q["question"] and (current_q["answer"] or len(current_q["options"]) == 1):
+                    # Nếu chỉ có 1 đáp án, vẫn lưu
+                    if not current_q["answer"] and len(current_q["options"]) == 1:
+                        current_q["answer"] = current_q["options"][0]
                     questions.append(current_q)
                 current_q = {"question": "", "options": [], "answer": None}
 
-            # Gộp dòng vào nội dung câu hỏi
+            # Thêm nội dung câu hỏi
             if current_q["question"]:
                 current_q["question"] += " " + line
             else:
                 current_q["question"] = line
 
-    # Thêm câu cuối cùng nếu còn
-    if current_q["question"] and current_q["answer"]:
+    # Thêm câu cuối cùng nếu hợp lệ
+    if current_q["question"] and current_q["options"]:
+        if not current_q["answer"] and len(current_q["options"]) == 1:
+            current_q["answer"] = current_q["options"][0]
         questions.append(current_q)
 
-    # 🧩 Bắt thêm các câu đặc biệt còn sót (không có đáp án chuẩn)
-    cleaned = []
-    for q in questions:
-        if q["options"] and q["answer"]:
-            cleaned.append(q)
-    return cleaned
+    # Dọn danh sách hợp lệ
+    final = [q for q in questions if q["question"] and q["options"]]
+    return final
 
 # =========================
 # 🧩 TẢI DỮ LIỆU
@@ -94,19 +97,14 @@ if TOTAL == 0:
     st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx.")
     st.stop()
 
-st.success(f"📘 Đã tải thành công {TOTAL} / 502 câu hỏi.")
+st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi từ file Word.")
 
 # =========================
 # 🧮 CHIA NHÓM 20 CÂU
 # =========================
 group_size = 20
 num_groups = math.ceil(TOTAL / group_size)
-group_labels = []
-
-for i in range(num_groups):
-    start = i * group_size + 1
-    end = min((i + 1) * group_size, TOTAL)
-    group_labels.append(f"Câu {start} - {end}")
+group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
 
 # =========================
 # 🎯 CHỌN NHÓM CÂU HỎI
