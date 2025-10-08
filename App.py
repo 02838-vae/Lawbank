@@ -3,75 +3,52 @@ import random
 import re
 from docx import Document
 
-# ===============================
-# ⚙️ Cấu hình giao diện
-# ===============================
+# =========================
+# ⚙️ Cấu hình trang
+# =========================
 st.set_page_config(page_title="Ngân hàng câu hỏi luật", page_icon="⚖️", layout="wide")
-
 st.title("⚖️ NGÂN HÀNG CÂU HỎI KIỂM TRA LUẬT (SOP)")
 
-# ===============================
-# 🧩 HÀM ĐỌC FILE WORD
-# ===============================
+# =========================
+# 📘 HÀM ĐỌC FILE WORD
+# =========================
 def load_questions(docx_path):
     try:
         doc = Document(docx_path)
     except Exception as e:
-        st.error(f"❌ Lỗi khi đọc file Word: {e}")
+        st.error(f"❌ Không thể đọc file Word: {e}")
         return []
 
-    # Gộp toàn bộ nội dung thành 1 chuỗi duy nhất
-    text = " ".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
+    # Ghép tất cả paragraph thành chuỗi, giữ nguyên xuống dòng
+    text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
 
-    # Nếu không có chữ nào, trả về lỗi
-    if not text:
-        st.warning("⚠️ File Word trống hoặc không đọc được nội dung.")
-        return []
-
-    # ✅ Tách câu hỏi dựa trên pattern: số + dấu chấm + khoảng trắng (có thể có tab hoặc ký tự đặc biệt)
-    # Ví dụ: "3. ", "29. ", "100. "
-    raw_questions = re.split(r'(?:(?<=\s)|^)(\d{1,3})\.\s+', text)
-
-    # Vì re.split giữ lại nhóm số thứ tự nên cần lọc lại
-    merged = []
-    buffer = ""
-    for part in raw_questions:
-        if re.match(r"^\d{1,3}$", part.strip()):
-            if buffer:
-                merged.append(buffer.strip())
-            buffer = part + ". "
-        else:
-            buffer += part
-    if buffer:
-        merged.append(buffer.strip())
+    # ✅ Tách theo số thứ tự đầu câu (vd: "1. ", "2. ", "99. ")
+    raw_questions = re.split(r'\n(?=\d+\.\s)', text)
 
     questions = []
-    for q in merged:
-        q = q.strip()
-        if not q:
+    for block in raw_questions:
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
+        if len(lines) < 2:
             continue
 
-        # Tách phần câu hỏi và các đáp án
-        parts = re.split(r'(?=[a-zA-Z]\.\s|\*[a-zA-Z]\.\s)', q)
-        if len(parts) < 2:
-            continue
-
-        question_text = parts[0].strip()
+        question_text = lines[0]
         options = []
         correct = None
 
-        for opt in parts[1:]:
-            opt = opt.strip()
-            match = re.match(r"(\*?)([a-zA-Z])\.\s*(.*)", opt)
+        # Duyệt từng dòng trong khối câu hỏi
+        for i, l in enumerate(lines[1:]):
+            match = re.match(r"(\*?)([a-zA-Z])\.\s*(.*)", l)
             if match:
+                # Đây là dòng đáp án
                 is_correct = bool(match.group(1))
-                option_text = match.group(3).strip()
-                options.append(option_text)
+                text = match.group(3).strip()
+                options.append(text)
                 if is_correct:
-                    correct = option_text
+                    correct = text
             else:
-                # Nếu là dòng Ref hoặc phụ chú
-                question_text += " " + opt
+                # Nếu dòng không phải đáp án (vd: Ref. hoặc tiếp nối câu hỏi)
+                if not re.match(r'^\d+\.\s', l):  # tránh gộp sang câu tiếp theo
+                    question_text += " " + l
 
         if options and correct:
             questions.append({
@@ -83,18 +60,16 @@ def load_questions(docx_path):
     return questions
 
 
-# ===============================
-# 🔹 TẢI DỮ LIỆU
-# ===============================
+# =========================
+# 🎮 GIAO DIỆN STREAMLIT
+# =========================
 questions = load_questions("bank.docx")
 
 if len(questions) == 0:
-    st.error("❌ Không đọc được câu hỏi nào từ file Word. Hãy kiểm tra lại định dạng hoặc ký tự đặc biệt trong file.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại định dạng file hoặc tên file (bank.docx).")
     st.stop()
 
-# ===============================
-# 🎮 LOGIC KIỂM TRA
-# ===============================
+# Bộ nhớ session
 if "index" not in st.session_state:
     st.session_state.index = 0
 if "score" not in st.session_state:
@@ -102,8 +77,8 @@ if "score" not in st.session_state:
 if "answered" not in st.session_state:
     st.session_state.answered = False
 
+# Hiển thị câu hỏi hiện tại
 q = questions[st.session_state.index]
-
 st.markdown(f"### Câu {st.session_state.index + 1}: {q['question']}")
 choice = st.radio("Chọn đáp án của bạn:", q["options"], index=None)
 
@@ -115,15 +90,14 @@ if st.button("✅ Xác nhận"):
     else:
         st.error(f"Sai rồi ❌ — Đáp án đúng là: {q['answer']}")
 
-if st.session_state.answered and st.button("➡️ Tiếp theo"):
+if st.session_state.answered and st.button("➡️ Câu tiếp theo"):
     st.session_state.index += 1
     st.session_state.answered = False
 
     if st.session_state.index >= len(questions):
         st.balloons()
-        st.success(f"🎉 Bạn đã hoàn thành {len(questions)} câu hỏi!")
-        st.info(f"Điểm của bạn: **{st.session_state.score} / {len(questions)}**")
-        if st.button("🔁 Làm lại từ đầu"):
+        st.success(f"🎉 Hoàn thành bài kiểm tra! Tổng điểm: {st.session_state.score}/{len(questions)}")
+        if st.button("🔁 Làm lại"):
             st.session_state.index = 0
             st.session_state.score = 0
     st.rerun()
