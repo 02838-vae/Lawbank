@@ -36,7 +36,7 @@ def load_questions(docx_path):
             match = re.match(r"(\*?)([a-zA-Z])\.\s*(.*)", l)
             if match:
                 is_correct = bool(match.group(1))
-                text = match.group(3)
+                text = match.group(3).strip()
                 options.append(text)
                 if is_correct:
                     correct = text
@@ -119,17 +119,22 @@ if st.session_state.index >= len(st.session_state.current_batch):
 current_q_index = st.session_state.current_batch[st.session_state.index]
 q = questions[current_q_index]
 
-st.markdown(f"### Câu {st.session_state.index + 1}/20: {q['question']}")
-choice = st.radio("Chọn đáp án của bạn:", q["options"], index=None, key=f"radio_{st.session_state.index}")
+# Hiển thị câu hỏi rõ ràng, tách dòng
+st.markdown(f"### 🧭 Câu {st.session_state.index + 1}/20\n\n{q['question']}\n\n---")
 
+# Hiển thị đáp án mỗi dòng tách biệt
+choice = st.radio("👉 Chọn đáp án của bạn:", q["options"], index=None, key=f"radio_{st.session_state.index}")
+
+# Nút xác nhận
 if st.button("✅ Xác nhận"):
     st.session_state.answered = True
     if choice == q["answer"]:
-        st.success("Chính xác! ✅")
+        st.success("🎯 Chính xác!")
         st.session_state.score += 1
     else:
-        st.error(f"Sai rồi ❌ — Đáp án đúng là: {q['answer']}")
+        st.error(f"❌ Sai rồi — Đáp án đúng là: **{q['answer']}**")
 
+# Nút tiếp theo
 if st.session_state.answered and st.button("➡️ Câu tiếp theo"):
     st.session_state.index += 1
     st.session_state.answered = False
