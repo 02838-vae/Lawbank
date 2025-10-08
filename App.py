@@ -19,14 +19,11 @@ def load_questions(docx_path):
         st.error(f"❌ Không thể đọc file Word: {e}")
         return []
 
-    # Ghép tất cả paragraph thành chuỗi, giữ nguyên xuống dòng
     text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
-
-    # ✅ Tách theo số thứ tự đầu câu (vd: "1. ", "2. ", "99. ")
-    raw_questions = re.split(r'\n(?=\d+\.\s)', text)
+    question_blocks = re.split(r'\n(?=\d+\.\s)', text)
 
     questions = []
-    for block in raw_questions:
+    for block in question_blocks:
         lines = [l.strip() for l in block.split("\n") if l.strip()]
         if len(lines) < 2:
             continue
@@ -35,19 +32,17 @@ def load_questions(docx_path):
         options = []
         correct = None
 
-        # Duyệt từng dòng trong khối câu hỏi
-        for i, l in enumerate(lines[1:]):
+        for l in lines[1:]:
             match = re.match(r"(\*?)([a-zA-Z])\.\s*(.*)", l)
             if match:
-                # Đây là dòng đáp án
                 is_correct = bool(match.group(1))
-                text = match.group(3).strip()
+                text = match.group(3)
                 options.append(text)
                 if is_correct:
                     correct = text
             else:
-                # Nếu dòng không phải đáp án (vd: Ref. hoặc tiếp nối câu hỏi)
-                if not re.match(r'^\d+\.\s', l):  # tránh gộp sang câu tiếp theo
+                # Gộp dòng phụ (Ref.) vào câu hỏi, trừ khi là câu kế tiếp
+                if not re.match(r'^\d+\.\s', l):
                     question_text += " " + l
 
         if options and correct:
@@ -59,17 +54,27 @@ def load_questions(docx_path):
 
     return questions
 
-
 # =========================
-# 🎮 GIAO DIỆN STREAMLIT
+# 🧩 TẢI DỮ LIỆU
 # =========================
 questions = load_questions("bank.docx")
+TOTAL = len(questions)
 
-if len(questions) == 0:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại định dạng file hoặc tên file (bank.docx).")
+if TOTAL == 0:
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx.")
     st.stop()
 
-# Bộ nhớ session
+st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi.")
+
+# =========================
+# 🎮 LOGIC THI 20 CÂU MỖI LƯỢT
+# =========================
+if "remaining_questions" not in st.session_state:
+    st.session_state.remaining_questions = list(range(TOTAL))  # danh sách index câu hỏi còn lại
+if "current_batch" not in st.session_state:
+    st.session_state.current_batch = random.sample(st.session_state.remaining_questions, min(20, len(st.session_state.remaining_questions)))
+    for i in st.session_state.current_batch:
+        st.session_state.remaining_questions.remove(i)
 if "index" not in st.session_state:
     st.session_state.index = 0
 if "score" not in st.session_state:
@@ -77,10 +82,45 @@ if "score" not in st.session_state:
 if "answered" not in st.session_state:
     st.session_state.answered = False
 
-# Hiển thị câu hỏi hiện tại
-q = questions[st.session_state.index]
-st.markdown(f"### Câu {st.session_state.index + 1}: {q['question']}")
-choice = st.radio("Chọn đáp án của bạn:", q["options"], index=None)
+# Nếu đã hết câu trong batch
+if st.session_state.index >= len(st.session_state.current_batch):
+    st.balloons()
+    st.success(f"🎉 Hoàn thành 20 câu! Điểm của bạn: {st.session_state.score}/20")
+
+    if len(st.session_state.remaining_questions) > 0:
+        if st.button("🔁 Làm 20 câu tiếp theo"):
+            st.session_state.current_batch = random.sample(
+                st.session_state.remaining_questions,
+                min(20, len(st.session_state.remaining_questions))
+            )
+            for i in st.session_state.current_batch:
+                st.session_state.remaining_questions.remove(i)
+            st.session_state.index = 0
+            st.session_state.score = 0
+            st.session_state.answered = False
+            st.rerun()
+    else:
+        st.info("✅ Bạn đã hoàn thành toàn bộ 502 câu hỏi!")
+        if st.button("🔄 Làm lại từ đầu"):
+            st.session_state.remaining_questions = list(range(TOTAL))
+            st.session_state.current_batch = random.sample(st.session_state.remaining_questions, 20)
+            for i in st.session_state.current_batch:
+                st.session_state.remaining_questions.remove(i)
+            st.session_state.index = 0
+            st.session_state.score = 0
+            st.session_state.answered = False
+            st.rerun()
+
+    st.stop()
+
+# =========================
+# 📄 HIỂN THỊ CÂU HỎI HIỆN TẠI
+# =========================
+current_q_index = st.session_state.current_batch[st.session_state.index]
+q = questions[current_q_index]
+
+st.markdown(f"### Câu {st.session_state.index + 1}/20: {q['question']}")
+choice = st.radio("Chọn đáp án của bạn:", q["options"], index=None, key=f"radio_{st.session_state.index}")
 
 if st.button("✅ Xác nhận"):
     st.session_state.answered = True
@@ -93,11 +133,4 @@ if st.button("✅ Xác nhận"):
 if st.session_state.answered and st.button("➡️ Câu tiếp theo"):
     st.session_state.index += 1
     st.session_state.answered = False
-
-    if st.session_state.index >= len(questions):
-        st.balloons()
-        st.success(f"🎉 Hoàn thành bài kiểm tra! Tổng điểm: {st.session_state.score}/{len(questions)}")
-        if st.button("🔁 Làm lại"):
-            st.session_state.index = 0
-            st.session_state.score = 0
     st.rerun()
