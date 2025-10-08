@@ -4,152 +4,120 @@ from docx import Document
 import math
 
 # =========================
-# Cấu hình giao diện (canh giữa)
+# ⚙️ Giao diện và CSS
 # =========================
 st.set_page_config(page_title="Ngân hàng câu hỏi luật", page_icon="⚖️", layout="wide")
 st.markdown("""
     <style>
     .main { display: flex; justify-content: center; }
-    div.block-container { text-align: center; max-width: 900px; padding-top: 1rem; }
+    div.block-container {
+        text-align: center;
+        max-width: 900px;
+        padding-top: 1rem;
+    }
+    h1 {
+        font-size: 28px !important;
+        font-weight: 700 !important;
+        margin-bottom: 0.5rem !important;
+    }
+    .question-text {
+        font-size: 18px !important;
+        font-weight: 500 !important;
+        text-align: left;
+        margin-top: 1rem;
+    }
     .stRadio > label { font-weight: normal; }
-    .stButton>button { width: 60%; margin: 10px auto; display: block; border-radius: 10px; font-size: 18px; padding: 0.6rem 1rem; }
+    .stButton>button {
+        width: 60%;
+        margin: 10px auto;
+        display: block;
+        border-radius: 10px;
+        font-size: 18px;
+        padding: 0.6rem 1rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚖️ NGÂN HÀNG CÂU HỎI KIỂM TRA LUẬT (SOP)")
+st.markdown("<h1>⚖️ Ngân hàng câu hỏi kiểm tra luật (SOP)</h1>", unsafe_allow_html=True)
 
 # =========================
-# Hàm đọc file .docx (lọc chính xác, bỏ Ref.)
+# 📘 HÀM ĐỌC FILE WORD
 # =========================
 def load_questions(docx_path):
     try:
         doc = Document(docx_path)
     except Exception as e:
         st.error(f"❌ Không thể đọc file Word: {e}")
-        return [], [], []
+        return []
 
-    # Lấy paragraphs (loại bỏ dòng rỗng)
     paragraphs = [p.text.rstrip() for p in doc.paragraphs if p.text and p.text.strip()]
 
     questions = []
-    problematic = []  # lưu các đoạn nghi ngờ
     current = {"question": "", "options": [], "answer": None}
-    prev_non_option = None
 
-    # Regex linh hoạt cho đáp án:
-    # có thể có số thứ tự trước (ví dụ "29. a. ..."), có thể có '*', chữ hoa/thường,
-    # nhận các dấu . ) - – :
-    opt_re = re.compile(r'^\s*(?:\d+\.\s*)?([\*]?)\s*([a-zA-Z])\s*[\.\)\-–:]\s*(.*)$')
+    opt_re = re.compile(r'^\s*(?:\d+\.\s*)?([\*]?)\s*([a-zA-Z])[\.\)\-–:]\s*(.*)$')
 
-    for idx, line in enumerate(paragraphs):
-        # Bỏ hoàn toàn dòng bắt đầu bằng Ref (Ref., Ref:, ref., v.v.)
+    for line in paragraphs:
+        # Bỏ dòng bắt đầu bằng Ref.
         if re.match(r'^\s*Ref[:\.]\s*', line, re.IGNORECASE):
-            # bỏ qua dòng Ref.
             continue
 
-        # thử detect đáp án
         m = opt_re.match(line)
         if m:
-            star = m.group(1) or ""
-            letter = m.group(2)
-            opt_text = m.group(3).strip()
-
-            # nếu không có đoạn question hiện tại nhưng có prev_non_option -> dùng làm question
-            if not current["question"] and prev_non_option:
-                current["question"] = prev_non_option
-                prev_non_option = None
-
-            # nếu opt_text rỗng thì đánh dấu problematic
-            if not opt_text:
-                problematic.append((idx, line))
+            star = m.group(1)
+            text = m.group(3).strip()
+            if not text:
                 continue
 
-            current["options"].append(opt_text)
+            current["options"].append(text)
             if star:
-                current["answer"] = opt_text
-
+                current["answer"] = text
         else:
-            # không phải dòng đáp án
-            # nếu current đã có options => đây là khả năng bắt đầu câu mới
             if current["options"]:
-                # chuẩn hóa: nếu chỉ có 1 option và chưa có answer thì set luôn
+                # nếu chỉ có 1 đáp án và chưa có answer, gán luôn
                 if not current["answer"] and len(current["options"]) == 1:
                     current["answer"] = current["options"][0]
-
-                # loại bỏ số thứ tự đứng đầu câu (nếu có) cho hiển thị gọn
                 current["question"] = re.sub(r'^\s*\d+\.\s*', '', current["question"]).strip()
-
-                # nếu hợp lệ thì lưu
                 if current["question"] and current["options"]:
                     questions.append(current)
-                else:
-                    problematic.append(("incomplete", current))
+                current = {"question": "", "options": [], "answer": None}
 
-                # bắt đầu câu mới từ dòng hiện tại
-                current = {"question": line.strip(), "options": [], "answer": None}
-                prev_non_option = line.strip()
+            if current["question"]:
+                current["question"] += " " + line.strip()
             else:
-                # chưa có options -> đang nối nội dung câu hỏi
-                if current["question"]:
-                    current["question"] += " " + line.strip()
-                else:
-                    current["question"] = line.strip()
-                prev_non_option = line.strip()
+                current["question"] = line.strip()
 
-    # sau vòng lặp: thêm câu cuối nếu hợp lệ
+    # Câu cuối cùng
     if current["options"]:
         if not current["answer"] and len(current["options"]) == 1:
             current["answer"] = current["options"][0]
         current["question"] = re.sub(r'^\s*\d+\.\s*', '', current["question"]).strip()
         if current["question"] and current["options"]:
             questions.append(current)
-        else:
-            problematic.append(("end_incomplete", current))
 
-    # Lọc final: chỉ giữ những câu có ít nhất 1 option
-    final_questions = []
+    # Dọn final: bỏ sót Ref trong question nếu còn
     for q in questions:
-        # loại bỏ bất kỳ 'Ref.' còn sót trong question (dù đã cố loại)
-        q_text = re.sub(r'\bRef[:\.].*$', '', q["question"], flags=re.IGNORECASE).strip()
-        q["question"] = q_text
-        if q["options"]:
-            final_questions.append(q)
-        else:
-            problematic.append(("no_options", q))
+        q["question"] = re.sub(r'\bRef[:\.].*$', '', q["question"], flags=re.IGNORECASE).strip()
 
-    return final_questions, paragraphs, problematic
-
+    return [q for q in questions if q["question"] and q["options"]]
 
 # =========================
-# Tải dữ liệu
+# 🧩 TẢI DỮ LIỆU
 # =========================
-questions, paragraphs, problematic = load_questions("bank.docx")
+questions = load_questions("bank.docx")
 TOTAL = len(questions)
 
 if TOTAL == 0:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx hoặc gửi mình vài dòng đầu để mình điều chỉnh.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx.")
     st.stop()
 
-st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi (Ref. đã bị loại bỏ).")
-
-# Hiển thị debug (tùy chọn, giúp tìm 2 câu bị lạc)
-with st.expander("🔎 Xem thông tin debug (đoạn không được nhận diện)"):
-    st.write(f"Tổng paragraphs: {len(paragraphs)}")
-    st.write(f"Số câu đọc được: {TOTAL}")
-    st.write(f"Số đoạn nghi ngờ (problematic): {len(problematic)} — (nhiều khi là đoạn rỗng hoặc format lạ)")
-    if problematic:
-        st.markdown("**Một vài đoạn problem (index, nội dung):**")
-        for item in problematic[:50]:
-            st.write(item)
-
 # =========================
-# Chia nhóm 20 câu, giữ thứ tự gốc
+# 🧮 CHIA NHÓM 20 CÂU
 # =========================
 group_size = 20
 num_groups = math.ceil(TOTAL / group_size)
 group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
 
-# khi đổi group -> reset trạng thái trả lời/nộp
 if "last_group" not in st.session_state:
     st.session_state.last_group = None
 if "submitted" not in st.session_state:
@@ -157,7 +125,6 @@ if "submitted" not in st.session_state:
 
 selected_group = st.selectbox("📋 Bạn muốn làm nhóm câu nào?", group_labels, index=0)
 
-# Nếu đổi nhóm, clear mọi key q_... và reset submitted
 if st.session_state.last_group != selected_group:
     for k in list(st.session_state.keys()):
         if k.startswith("q_"):
@@ -170,15 +137,14 @@ end_idx = min(start_idx + group_size, TOTAL)
 batch = questions[start_idx:end_idx]
 
 # =========================
-# Hiển thị 20 câu cùng lúc (với placeholder "(Chưa chọn)")
+# 📄 HIỂN THỊ CÂU HỎI
 # =========================
 if not st.session_state.submitted:
     st.markdown(f"### 🧩 Nhóm {selected_group}")
 
     for i, q in enumerate(batch, start=start_idx + 1):
-        st.markdown(f"**{i}. {q['question']}**")
+        st.markdown(f"<div class='question-text'><b>{i}. {q['question']}</b></div>", unsafe_allow_html=True)
         opts = ["(Chưa chọn)"] + q["options"]
-        # radio với placeholder
         st.radio("", opts, index=0, key=f"q_{i}")
         st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -187,15 +153,12 @@ if not st.session_state.submitted:
         st.rerun()
 
 else:
-    # Tính điểm và hiển thị kết quả
+    # Hiển thị kết quả
     score = 0
     for i, q in enumerate(batch, start=start_idx + 1):
         selected = st.session_state.get(f"q_{i}", "(Chưa chọn)")
         correct = q["answer"]
-        if selected == "(Chưa chọn)":
-            is_correct = False
-        else:
-            is_correct = selected == correct
+        is_correct = selected == correct
         if is_correct:
             score += 1
             st.success(f"{i}. {q['question']}\n\n✅ Đúng ({correct})")
