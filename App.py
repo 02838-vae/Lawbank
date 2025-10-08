@@ -25,9 +25,9 @@ def load_questions(docx_path):
     current_q = {"question": "", "options": [], "answer": None}
 
     for line in paragraphs:
-        # Nếu dòng bắt đầu bằng a/b/c thì là đáp án
-        if re.match(r"^\*?[a-cA-C]\.\s", line):
-            match = re.match(r"(\*?)([a-cA-C])\.\s*(.*)", line)
+        # Nếu dòng bắt đầu bằng đáp án (a/b/c/d, có thể * hoặc khoảng trắng trước)
+        if re.match(r"^\s*\*?\s*[a-dA-D]\.\s", line):
+            match = re.match(r"^\s*(\*?)\s*([a-dA-D])\.\s*(.*)", line)
             if match:
                 is_correct = bool(match.group(1))
                 text = match.group(3).strip()
@@ -35,13 +35,13 @@ def load_questions(docx_path):
                 if is_correct:
                     current_q["answer"] = text
         else:
-            # Nếu dòng mới và câu hiện tại có đáp án => lưu lại câu trước
+            # Nếu gặp dòng mới sau khi có đáp án => lưu câu trước
             if current_q["options"]:
                 if current_q["question"] and current_q["answer"]:
                     questions.append(current_q)
                 current_q = {"question": "", "options": [], "answer": None}
 
-            # Thêm dòng mới vào nội dung câu hỏi
+            # Gộp dòng vào nội dung câu hỏi
             if current_q["question"]:
                 current_q["question"] += " " + line
             else:
@@ -68,73 +68,78 @@ st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi.")
 # =========================
 # 🎮 LOGIC THI 20 CÂU MỖI LƯỢT
 # =========================
-if "remaining_questions" not in st.session_state:
-    st.session_state.remaining_questions = list(range(TOTAL))
-if "current_batch" not in st.session_state:
-    st.session_state.current_batch = random.sample(
-        st.session_state.remaining_questions,
-        min(20, len(st.session_state.remaining_questions))
-    )
-    for i in st.session_state.current_batch:
-        st.session_state.remaining_questions.remove(i)
-if "index" not in st.session_state:
-    st.session_state.index = 0
-if "score" not in st.session_state:
-    st.session_state.score = 0
-if "answered" not in st.session_state:
-    st.session_state.answered = False
+if "remaining" not in st.session_state:
+    st.session_state.remaining = list(range(TOTAL))
+if "batch" not in st.session_state:
+    st.session_state.batch = random.sample(st.session_state.remaining, min(20, len(st.session_state.remaining)))
+    for i in st.session_state.batch:
+        st.session_state.remaining.remove(i)
+if "answers" not in st.session_state:
+    st.session_state.answers = {}
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
 
-# Nếu đã hết câu trong batch
-if st.session_state.index >= len(st.session_state.current_batch):
-    st.balloons()
-    st.success(f"🎉 Hoàn thành 20 câu! Điểm của bạn: {st.session_state.score}/20")
+batch = st.session_state.batch
 
-    if len(st.session_state.remaining_questions) > 0:
-        if st.button("🔁 Làm 20 câu tiếp theo"):
-            st.session_state.current_batch = random.sample(
-                st.session_state.remaining_questions,
-                min(20, len(st.session_state.remaining_questions))
+# =========================
+# 📄 HIỂN THỊ 20 CÂU CÙNG LÚC
+# =========================
+if not st.session_state.submitted:
+    st.markdown("### 📘 Trả lời 20 câu hỏi dưới đây:")
+
+    for idx, q_index in enumerate(batch):
+        q = questions[q_index]
+        st.markdown(f"**{idx+1}. {q['question']}**")
+        st.session_state.answers[q_index] = st.radio(
+            "",
+            q["options"],
+            index=None,
+            key=f"q_{q_index}"
+        )
+        st.divider()
+
+    if st.button("✅ Xem kết quả"):
+        st.session_state.submitted = True
+        st.rerun()
+
+else:
+    # Tính điểm và hiển thị kết quả
+    score = 0
+    for q_index in batch:
+        q = questions[q_index]
+        selected = st.session_state.answers.get(q_index)
+        correct = q["answer"]
+        is_correct = selected == correct
+        if is_correct:
+            score += 1
+
+        st.markdown(
+            f"**{q['question']}**  \n"
+            f"👉 Bạn chọn: {selected if selected else '—'}  \n"
+            f"✅ Đáp án đúng: **{correct}**"
+        )
+        st.markdown("---")
+
+    st.success(f"🎯 Điểm của bạn: {score}/20")
+
+    if len(st.session_state.remaining) > 0:
+        if st.button("➡️ Làm 20 câu tiếp theo"):
+            st.session_state.batch = random.sample(
+                st.session_state.remaining,
+                min(20, len(st.session_state.remaining))
             )
-            for i in st.session_state.current_batch:
-                st.session_state.remaining_questions.remove(i)
-            st.session_state.index = 0
-            st.session_state.score = 0
-            st.session_state.answered = False
+            for i in st.session_state.batch:
+                st.session_state.remaining.remove(i)
+            st.session_state.answers = {}
+            st.session_state.submitted = False
             st.rerun()
     else:
         st.info("✅ Bạn đã hoàn thành toàn bộ câu hỏi!")
         if st.button("🔄 Làm lại từ đầu"):
-            st.session_state.remaining_questions = list(range(TOTAL))
-            st.session_state.current_batch = random.sample(st.session_state.remaining_questions, 20)
-            for i in st.session_state.current_batch:
-                st.session_state.remaining_questions.remove(i)
-            st.session_state.index = 0
-            st.session_state.score = 0
-            st.session_state.answered = False
+            st.session_state.remaining = list(range(TOTAL))
+            st.session_state.batch = random.sample(st.session_state.remaining, 20)
+            for i in st.session_state.batch:
+                st.session_state.remaining.remove(i)
+            st.session_state.answers = {}
+            st.session_state.submitted = False
             st.rerun()
-
-    st.stop()
-
-# =========================
-# 📄 HIỂN THỊ CÂU HỎI HIỆN TẠI
-# =========================
-current_q_index = st.session_state.current_batch[st.session_state.index]
-q = questions[current_q_index]
-
-# Hiển thị đẹp từng câu
-st.markdown(f"### 🧭 Câu {st.session_state.index + 1}/20\n\n**{q['question']}**\n\n---")
-
-choice = st.radio("👉 Chọn đáp án của bạn:", q["options"], index=None, key=f"radio_{st.session_state.index}")
-
-if st.button("✅ Xác nhận"):
-    st.session_state.answered = True
-    if choice == q["answer"]:
-        st.success("🎯 Chính xác!")
-        st.session_state.score += 1
-    else:
-        st.error(f"❌ Sai rồi — Đáp án đúng là: **{q['answer']}**")
-
-if st.session_state.answered and st.button("➡️ Câu tiếp theo"):
-    st.session_state.index += 1
-    st.session_state.answered = False
-    st.rerun()
