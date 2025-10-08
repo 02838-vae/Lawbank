@@ -61,7 +61,7 @@ def load_questions(docx_path):
 # ===============================
 st.title("⚖️ NGÂN HÀNG CÂU HỎI KIỂM TRA LUẬT (SOP)")
 
-questions = load_questions("Procedure Questin Bank_Final_Update_15.08.25.docx")
+questions = load_questions("bank.docx")
 
 if "index" not in st.session_state:
     st.session_state.index = 0
