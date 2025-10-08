@@ -1,7 +1,7 @@
 import streamlit as st
-import random
 import re
 from docx import Document
+import math
 
 # =========================
 # ⚙️ Cấu hình giao diện
@@ -21,11 +21,10 @@ def load_questions(docx_path):
 
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     questions = []
-
     current_q = {"question": "", "options": [], "answer": None}
 
     for line in paragraphs:
-        # Nếu dòng bắt đầu bằng đáp án (a/b/c/d, có thể * hoặc khoảng trắng trước)
+        # Regex nhận cả a,b,c,d (hoa/thường), có thể có *, khoảng trắng
         if re.match(r"^\s*\*?\s*[a-dA-D]\.\s", line):
             match = re.match(r"^\s*(\*?)\s*([a-dA-D])\.\s*(.*)", line)
             if match:
@@ -35,13 +34,13 @@ def load_questions(docx_path):
                 if is_correct:
                     current_q["answer"] = text
         else:
-            # Nếu gặp dòng mới sau khi có đáp án => lưu câu trước
+            # Nếu gặp câu hỏi mới sau khi có đáp án => lưu câu cũ
             if current_q["options"]:
                 if current_q["question"] and current_q["answer"]:
                     questions.append(current_q)
                 current_q = {"question": "", "options": [], "answer": None}
 
-            # Gộp dòng vào nội dung câu hỏi
+            # Thêm dòng mới vào nội dung câu hỏi
             if current_q["question"]:
                 current_q["question"] += " " + line
             else:
@@ -60,86 +59,85 @@ questions = load_questions("bank.docx")
 TOTAL = len(questions)
 
 if TOTAL == 0:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx hoặc cấu trúc file.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file bank.docx.")
     st.stop()
 
 st.success(f"📘 Đã tải thành công {TOTAL} câu hỏi.")
 
 # =========================
-# 🎮 LOGIC THI 20 CÂU MỖI LƯỢT
+# 🧮 CHIA NHÓM 20 CÂU
 # =========================
-if "remaining" not in st.session_state:
-    st.session_state.remaining = list(range(TOTAL))
-if "batch" not in st.session_state:
-    st.session_state.batch = random.sample(st.session_state.remaining, min(20, len(st.session_state.remaining)))
-    for i in st.session_state.batch:
-        st.session_state.remaining.remove(i)
+group_size = 20
+num_groups = math.ceil(TOTAL / group_size)
+
+group_labels = []
+for i in range(num_groups):
+    start = i * group_size + 1
+    end = min((i + 1) * group_size, TOTAL)
+    group_labels.append(f"Câu {start} - {end}")
+
+# =========================
+# 🎯 CHỌN NHÓM CÂU HỎI
+# =========================
+selected_group = st.selectbox("📋 Bạn muốn làm nhóm câu nào?", group_labels)
+
+start_idx = (group_labels.index(selected_group)) * group_size
+end_idx = min(start_idx + group_size, TOTAL)
+batch = questions[start_idx:end_idx]
+
+# Dùng session để lưu đáp án
 if "answers" not in st.session_state:
     st.session_state.answers = {}
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 
-batch = st.session_state.batch
-
 # =========================
 # 📄 HIỂN THỊ 20 CÂU CÙNG LÚC
 # =========================
 if not st.session_state.submitted:
-    st.markdown("### 📘 Trả lời 20 câu hỏi dưới đây:")
+    st.markdown(f"### 🧩 Nhóm {selected_group}")
 
-    for idx, q_index in enumerate(batch):
-        q = questions[q_index]
-        st.markdown(f"**{idx+1}. {q['question']}**")
-        st.session_state.answers[q_index] = st.radio(
+    for i, q in enumerate(batch, start=start_idx + 1):
+        st.markdown(f"**{i}. {q['question']}**")
+        st.session_state.answers[i] = st.radio(
             "",
             q["options"],
             index=None,
-            key=f"q_{q_index}"
+            key=f"q_{i}"
         )
         st.divider()
 
-    if st.button("✅ Xem kết quả"):
+    if st.button("✅ Nộp bài và xem kết quả"):
         st.session_state.submitted = True
         st.rerun()
 
 else:
     # Tính điểm và hiển thị kết quả
     score = 0
-    for q_index in batch:
-        q = questions[q_index]
-        selected = st.session_state.answers.get(q_index)
+    for i, q in enumerate(batch, start=start_idx + 1):
+        selected = st.session_state.answers.get(i)
         correct = q["answer"]
         is_correct = selected == correct
         if is_correct:
             score += 1
+            st.success(f"{i}. {q['question']}\n\n✅ Đúng ({correct})")
+        else:
+            st.error(f"{i}. {q['question']}\n\n❌ Sai. Đáp án đúng: **{correct}**")
 
-        st.markdown(
-            f"**{q['question']}**  \n"
-            f"👉 Bạn chọn: {selected if selected else '—'}  \n"
-            f"✅ Đáp án đúng: **{correct}**"
-        )
         st.markdown("---")
 
-    st.success(f"🎯 Điểm của bạn: {score}/20")
+    st.subheader(f"🎯 Kết quả: {score}/{len(batch)} câu đúng")
 
-    if len(st.session_state.remaining) > 0:
-        if st.button("➡️ Làm 20 câu tiếp theo"):
-            st.session_state.batch = random.sample(
-                st.session_state.remaining,
-                min(20, len(st.session_state.remaining))
-            )
-            for i in st.session_state.batch:
-                st.session_state.remaining.remove(i)
-            st.session_state.answers = {}
-            st.session_state.submitted = False
-            st.rerun()
-    else:
-        st.info("✅ Bạn đã hoàn thành toàn bộ câu hỏi!")
-        if st.button("🔄 Làm lại từ đầu"):
-            st.session_state.remaining = list(range(TOTAL))
-            st.session_state.batch = random.sample(st.session_state.remaining, 20)
-            for i in st.session_state.batch:
-                st.session_state.remaining.remove(i)
-            st.session_state.answers = {}
-            st.session_state.submitted = False
-            st.rerun()
+    if st.button("🔁 Làm lại nhóm này"):
+        for i in range(start_idx + 1, end_idx + 1):
+            if f"q_{i}" in st.session_state:
+                del st.session_state[f"q_{i}"]
+        st.session_state.submitted = False
+        st.rerun()
+
+    if st.button("➡️ Sang nhóm câu khác"):
+        for i in range(start_idx + 1, end_idx + 1):
+            if f"q_{i}" in st.session_state:
+                del st.session_state[f"q_{i}"]
+        st.session_state.submitted = False
+        st.rerun()
