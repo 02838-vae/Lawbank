@@ -15,33 +15,13 @@ def load_questions(docx_file):
         return []
 
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    questions = []
-    current_q = {"question": "", "options": [], "answer": None}
-    opt_re = re.compile(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)")
 
-    for line in paragraphs:
-        # Bỏ qua dòng "Ref:"
-        if re.match(r"^\s*Ref[:\.]", line, re.IGNORECASE):
-            continue
+    # 🧩 DEBUG — hiện 30 dòng đầu tiên đọc được từ file Word
+    with st.expander("📋 Xem nội dung gốc từ Word (debug)"):
+        for i, p in enumerate(paragraphs[:30], 1):
+            st.write(f"{i:03d}: {p}")
 
-        # Nếu là dòng đáp án
-        m = opt_re.match(line)
-        if m:
-            is_correct = bool(m.group(1))
-            label = m.group(2).upper()
-            text_opt = m.group(3).strip()
-            if text_opt:
-                current_q["options"].append(f"{label}. {text_opt}")
-                if is_correct:
-                    current_q["answer"] = f"{label}. {text_opt}"
-        else:
-            # Nếu đang có câu hỏi và đáp án → kết thúc câu cũ
-            if current_q["question"] and current_q["options"]:
-                if len(current_q["options"]) >= 2:
-                    if not current_q["answer"]:
-                        current_q["answer"] = current_q["options"][0]
-                    questions.append(current_q)
-                current_q = {"question": "", "options": [], "answer": None}
+    # (phần còn lại của hàm giữ nguyên như cũ)
 
             # Nếu không phải đáp án → đây là dòng câu hỏi mới
             if current_q["question"]:
