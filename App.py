@@ -21,15 +21,32 @@ def load_questions(docx_file):
         for i, p in enumerate(paragraphs[:30], 1):
             st.write(f"{i:03d}: {p}")
 
-    # (phần còn lại của hàm giữ nguyên như cũ)
+    # 👉 Phần khởi tạo bị thiếu trong bản gốc
+    questions = []
+    current_q = {"question": "", "options": [], "answer": ""}
 
-            # Nếu không phải đáp án → đây là dòng câu hỏi mới
+    # 🧠 Xử lý từng dòng trong file Word
+    for line in paragraphs:
+        # Nếu là lựa chọn (A., B., C., D.)
+        if re.match(r"^[A-D]\.", line):
+            current_q["options"].append(line[2:].strip())
+
+        # Nếu là đáp án
+        elif line.lower().startswith("đáp án"):
+            ans = re.sub(r"đáp án[:\s]*", "", line, flags=re.I).strip()
+            current_q["answer"] = ans
+
+        # Ngược lại: là câu hỏi mới
+        else:
             if current_q["question"]:
-                current_q["question"] += " " + line
+                # Nếu câu hỏi trước có đủ dữ liệu thì lưu lại
+                if current_q["options"]:
+                    questions.append(current_q)
+                current_q = {"question": line, "options": [], "answer": ""}
             else:
                 current_q["question"] = line
 
-    # Thêm câu cuối cùng
+    # ✅ Thêm câu cuối cùng
     if current_q["question"] and current_q["options"]:
         if not current_q["answer"]:
             current_q["answer"] = current_q["options"][0]
