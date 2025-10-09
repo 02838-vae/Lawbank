@@ -21,47 +21,35 @@ def load_questions(docx_file, mode="law"):
     # 1️⃣ Dạng kỹ thuật (có dấu #)
     # ------------------------
     if mode == "tech":
+        # Cắt mỗi câu bắt đầu bằng "#"
         raw_blocks = re.split(r"(?=\n?#\s*\d*\s*)", text)
         for block in raw_blocks:
             block = block.strip()
             if not block.startswith("#"):
                 continue
 
-            # Lấy câu hỏi (dòng đầu)
             lines = [l.strip() for l in block.splitlines() if l.strip()]
             question_text = re.sub(r"^#+\s*\d*\s*", "", lines[0]).strip()
             rest_text = " ".join(lines[1:])
 
-            # Tìm tất cả đáp án, kể cả dính liền nhau
+            # Tách tất cả đáp án (a., b., c., d.) kể cả dính liền hoặc không xuống dòng
+            pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*?)(?=(?:[\*]?\s*[a-dA-D][\.\)\-–:])|$)"
+            matches = re.findall(pattern, rest_text, re.DOTALL)
+
             options = []
             correct_answer = None
-            pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*([^a-dA-D\*\n]+)"
-            matches = re.findall(pattern, rest_text)
 
             for m in matches:
                 is_correct = bool(m[0])
                 label = m[1].upper()
-                text_opt = m[2].strip()
+                text_opt = re.sub(r"\s+", " ", m[2].strip())
                 if text_opt:
                     opt = f"{label}. {text_opt}"
                     options.append(opt)
                     if is_correct:
                         correct_answer = opt
 
-            # Nếu ít hơn 2 đáp án → thử tách lại mạnh hơn (dính sát)
-            if len(options) < 2:
-                chunks = re.split(r"(?=[a-dA-D][\.\)\-–:])", rest_text)
-                for ch in chunks:
-                    m = re.match(r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.+)", ch.strip())
-                    if m:
-                        is_correct = bool(m.group(1))
-                        label = m.group(2).upper()
-                        text_opt = m.group(3).strip()
-                        opt = f"{label}. {text_opt}"
-                        options.append(opt)
-                        if is_correct:
-                            correct_answer = opt
-
+            # Thêm câu hỏi hợp lệ
             if len(options) >= 2:
                 if not correct_answer:
                     correct_answer = options[0]
@@ -215,8 +203,9 @@ if not st.session_state.submitted:
 
     for i, q in enumerate(batch, start=start + 1):
         st.markdown(f"<div class='question'><b>{i}. {q['question']}</b></div>", unsafe_allow_html=True)
-        opts = ["(Chưa chọn)"] + q["options"]
-        st.radio("", opts, index=0, key=f"q_{i}")
+        for opt in q["options"]:
+            st.markdown(f"- {opt}")
+        st.radio("", q["options"], index=0, key=f"q_{i}")
         st.markdown("<hr>", unsafe_allow_html=True)
 
     if st.button("✅ Nộp bài và xem kết quả"):
@@ -226,7 +215,7 @@ if not st.session_state.submitted:
 else:
     score = 0
     for i, q in enumerate(batch, start=start + 1):
-        selected = st.session_state.get(f"q_{i}", "(Chưa chọn)")
+        selected = st.session_state.get(f"q_{i}")
         correct = q["answer"]
         if selected == correct:
             score += 1
