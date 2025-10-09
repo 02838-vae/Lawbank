@@ -14,25 +14,30 @@ def load_questions(docx_file, mode="law"):
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
+    # Gom toàn bộ text, giữ thứ tự
     text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
     questions = []
 
     # ------------------------
-    # 1️⃣ Dạng kỹ thuật (có #)
+    # 1️⃣ Dạng kỹ thuật (có dấu #)
     # ------------------------
     if mode == "tech":
-        raw_blocks = re.split(r"(?=\n?#)", text)
+        # Cắt theo #, giữ thứ tự gốc
+        raw_blocks = re.split(r"(?=\n?#\s*\d*\s*)", text)
         for block in raw_blocks:
             block = block.strip()
             if not block.startswith("#"):
                 continue
 
+            # Lấy câu hỏi và các dòng đáp án
             lines = [l.strip() for l in block.splitlines() if l.strip()]
-            question_text = re.sub(r"^#+\s*", "", lines[0]).strip()
+            question_text = re.sub(r"^#+\s*\d*\s*", "", lines[0]).strip()
+
             options = []
             correct_answer = None
 
             for line in lines[1:]:
+                # Nhận dạng đáp án
                 m = re.match(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)", line)
                 if m:
                     is_correct = bool(m.group(1))
@@ -43,6 +48,7 @@ def load_questions(docx_file, mode="law"):
                         if is_correct:
                             correct_answer = f"{label}. {text_opt}"
 
+            # Chỉ thêm câu hợp lệ (>=2 đáp án)
             if len(options) >= 2:
                 if not correct_answer:
                     correct_answer = options[0]
@@ -91,6 +97,7 @@ def load_questions(docx_file, mode="law"):
                 current_q["answer"] = current_q["options"][0]
             questions.append(current_q)
 
+    # Trả về đúng thứ tự đọc từ file (không sắp xếp lại)
     return questions
 
 
@@ -127,10 +134,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+st.markdown("<h1>📚 Ngân hàng câu hỏi</h1>", unsafe_allow_html=True)
+
 # =====================
 # 🧩 CHỌN NGÂN HÀNG
 # =====================
-st.markdown("<h1>📚 Ngân hàng câu hỏi</h1>", unsafe_allow_html=True)
 bank_choice = st.selectbox(
     "Chọn ngân hàng muốn làm:",
     ["Ngân hàng Luật", "Ngân hàng Kỹ thuật"],
