@@ -7,7 +7,13 @@ import math
 # ⚙️ HÀM ĐỌC FILE WORD
 # =====================
 def load_questions(docx_file):
-    """Đọc câu hỏi từ file Word, hỗ trợ numbering tự động."""
+    """Đọc câu hỏi từ file Word, định dạng:
+    # Câu hỏi
+    a. ...
+    b.* ...
+    c. ...
+    d. ...
+    """
     try:
         doc = Document(docx_file)
     except Exception as e:
@@ -16,46 +22,73 @@ def load_questions(docx_file):
 
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
-    # 🧩 DEBUG — hiện 30 dòng đầu tiên đọc được từ file Word
+    # 🧩 Hiển thị trước 20 dòng để debug
     with st.expander("📋 Xem nội dung gốc từ Word (debug)"):
-        for i, p in enumerate(paragraphs[:30], 1):
+        for i, p in enumerate(paragraphs[:20], 1):
             st.write(f"{i:03d}: {p}")
 
-    # 👉 Phần khởi tạo bị thiếu trong bản gốc
     questions = []
     current_q = {"question": "", "options": [], "answer": ""}
 
-    # 🧠 Xử lý từng dòng trong file Word
     for line in paragraphs:
-        # Nếu là lựa chọn (A., B., C., D.)
-        if re.match(r"^[A-D]\.", line):
-            current_q["options"].append(line[2:].strip())
+        line = line.strip()
 
-        # Nếu là đáp án
-        elif line.lower().startswith("đáp án"):
-            ans = re.sub(r"đáp án[:\s]*", "", line, flags=re.I).strip()
-            current_q["answer"] = ans
+        # 🔹 Nếu dòng bắt đầu bằng '#' → là câu hỏi mới
+        if line.startswith("#"):
+            # Nếu câu trước có dữ liệu thì lưu lại
+            if current_q["question"] and current_q["options"]:
+                if not current_q["answer"] and current_q["options"]:
+                    current_q["answer"] = current_q["options"][0]
+                questions.append(current_q)
 
-        # Ngược lại: là câu hỏi mới
+            # Tạo câu hỏi mới
+            current_q = {"question": line.lstrip("#").strip(), "options": [], "answer": ""}
+
+        # 🔹 Nếu dòng là đáp án (a., b., c., d.)
+        elif re.match(r"^[a-dA-D][\.\)]", line):
+            # Kiểm tra dấu * (đáp án đúng)
+            is_correct = "*" in line
+
+            # Xóa ký tự * và ký hiệu a., b., c., ...
+            text = re.sub(r"^[a-dA-D][\.\)]\s*\*?", "", line).strip()
+
+            current_q["options"].append(text)
+            if is_correct:
+                current_q["answer"] = text
+
+        # 🔹 Nếu dòng bị dính liền (VD: "# Câu hỏi a. Đáp án 1")
         else:
-            if current_q["question"]:
-                # Nếu câu hỏi trước có đủ dữ liệu thì lưu lại
-                if current_q["options"]:
-                    questions.append(current_q)
-                current_q = {"question": line, "options": [], "answer": ""}
+            # Cố tách ra nếu có pattern a. hoặc b. trong cùng dòng
+            parts = re.split(r"(?=[a-dA-D][\.\)])", line)
+            if len(parts) > 1:
+                # Dòng đầu tiên là phần câu hỏi
+                if not current_q["question"]:
+                    current_q["question"] = parts[0].lstrip("#").strip()
+                # Các phần sau là lựa chọn
+                for p in parts[1:]:
+                    if not p.strip():
+                        continue
+                    is_correct = "*" in p
+                    text = re.sub(r"^[a-dA-D][\.\)]\s*\*?", "", p).strip()
+                    current_q["options"].append(text)
+                    if is_correct:
+                        current_q["answer"] = text
             else:
-                current_q["question"] = line
+                # Nếu chỉ là phần nối tiếp câu hỏi
+                if current_q["question"]:
+                    current_q["question"] += " " + line
 
-    # ✅ Thêm câu cuối cùng
+    # Thêm câu cuối cùng
     if current_q["question"] and current_q["options"]:
         if not current_q["answer"]:
             current_q["answer"] = current_q["options"][0]
         questions.append(current_q)
 
-    # Cắt bỏ khoảng trắng, giữ nguyên thứ tự
+    # Làm sạch
     for q in questions:
         q["question"] = q["question"].strip()
         q["options"] = [opt.strip() for opt in q["options"] if opt.strip()]
+
     return questions
 
 
