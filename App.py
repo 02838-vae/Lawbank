@@ -124,7 +124,7 @@ bank_choice = st.selectbox(
     index=0
 )
 
-file_path = "bank.docx" if "Luật" in bank_choice else "cabbank.docx"
+file_path = "lawbank.docx" if "Luật" in bank_choice else "cabbank.docx"
 
 # =====================
 # 🧮 ĐỌC CÂU HỎI
