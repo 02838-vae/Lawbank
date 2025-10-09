@@ -14,6 +14,7 @@ def load_questions(docx_file, mode="law"):
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
+    # Ghép toàn bộ text (đảm bảo giữ thứ tự gốc)
     text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
     questions = []
 
@@ -21,18 +22,18 @@ def load_questions(docx_file, mode="law"):
     # 1️⃣ Dạng kỹ thuật (có dấu #)
     # ------------------------
     if mode == "tech":
-        # Cắt mỗi câu bắt đầu bằng "#"
-        raw_blocks = re.split(r"(?=\n?#\s*\d*\s*)", text)
+        # Tách chính xác theo các câu bắt đầu bằng # và số (như #1, #2, ...)
+        raw_blocks = re.split(r"(?=\n?#\s*\d+\s*)", text)
         for block in raw_blocks:
             block = block.strip()
-            if not block.startswith("#"):
+            if not re.match(r"^#\s*\d+", block):
                 continue
 
             lines = [l.strip() for l in block.splitlines() if l.strip()]
-            question_text = re.sub(r"^#+\s*\d*\s*", "", lines[0]).strip()
+            question_text = re.sub(r"^#+\s*\d+\s*", "", lines[0]).strip()
             rest_text = " ".join(lines[1:])
 
-            # Tách tất cả đáp án (a., b., c., d.) kể cả dính liền hoặc không xuống dòng
+            # Regex tách đáp án dù dính liền
             pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*?)(?=(?:[\*]?\s*[a-dA-D][\.\)\-–:])|$)"
             matches = re.findall(pattern, rest_text, re.DOTALL)
 
@@ -49,7 +50,21 @@ def load_questions(docx_file, mode="law"):
                     if is_correct:
                         correct_answer = opt
 
-            # Thêm câu hỏi hợp lệ
+            # Nếu ít đáp án → fallback
+            if len(options) < 2:
+                chunks = re.split(r"(?=[a-dA-D][\.\)\-–:])", rest_text)
+                for ch in chunks:
+                    m = re.match(r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.+)", ch.strip())
+                    if m:
+                        is_correct = bool(m.group(1))
+                        label = m.group(2).upper()
+                        text_opt = m.group(3).strip()
+                        opt = f"{label}. {text_opt}"
+                        options.append(opt)
+                        if is_correct:
+                            correct_answer = opt
+
+            # Thêm câu hỏi nếu hợp lệ
             if len(options) >= 2:
                 if not correct_answer:
                     correct_answer = options[0]
@@ -98,6 +113,7 @@ def load_questions(docx_file, mode="law"):
                 current_q["answer"] = current_q["options"][0]
             questions.append(current_q)
 
+    # Trả về danh sách theo đúng thứ tự đọc được
     return questions
 
 
@@ -203,8 +219,6 @@ if not st.session_state.submitted:
 
     for i, q in enumerate(batch, start=start + 1):
         st.markdown(f"<div class='question'><b>{i}. {q['question']}</b></div>", unsafe_allow_html=True)
-        for opt in q["options"]:
-            st.markdown(f"- {opt}")
         st.radio("", q["options"], index=0, key=f"q_{i}")
         st.markdown("<hr>", unsafe_allow_html=True)
 
