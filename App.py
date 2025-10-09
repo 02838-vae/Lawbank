@@ -14,7 +14,6 @@ def load_questions(docx_file, mode="law"):
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
-    # Gom toàn bộ text, giữ thứ tự
     text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
     questions = []
 
@@ -22,33 +21,47 @@ def load_questions(docx_file, mode="law"):
     # 1️⃣ Dạng kỹ thuật (có dấu #)
     # ------------------------
     if mode == "tech":
-        # Cắt theo #, giữ thứ tự gốc
         raw_blocks = re.split(r"(?=\n?#\s*\d*\s*)", text)
         for block in raw_blocks:
             block = block.strip()
             if not block.startswith("#"):
                 continue
 
-            # Lấy câu hỏi và các dòng đáp án
+            # Lấy câu hỏi (dòng đầu)
             lines = [l.strip() for l in block.splitlines() if l.strip()]
             question_text = re.sub(r"^#+\s*\d*\s*", "", lines[0]).strip()
+            rest_text = " ".join(lines[1:])
 
+            # Tìm tất cả đáp án, kể cả dính liền nhau
             options = []
             correct_answer = None
+            pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*([^a-dA-D\*\n]+)"
+            matches = re.findall(pattern, rest_text)
 
-            for line in lines[1:]:
-                # Nhận dạng đáp án
-                m = re.match(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)", line)
-                if m:
-                    is_correct = bool(m.group(1))
-                    label = m.group(2).upper()
-                    text_opt = m.group(3).strip()
-                    if text_opt:
-                        options.append(f"{label}. {text_opt}")
+            for m in matches:
+                is_correct = bool(m[0])
+                label = m[1].upper()
+                text_opt = m[2].strip()
+                if text_opt:
+                    opt = f"{label}. {text_opt}"
+                    options.append(opt)
+                    if is_correct:
+                        correct_answer = opt
+
+            # Nếu ít hơn 2 đáp án → thử tách lại mạnh hơn (dính sát)
+            if len(options) < 2:
+                chunks = re.split(r"(?=[a-dA-D][\.\)\-–:])", rest_text)
+                for ch in chunks:
+                    m = re.match(r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.+)", ch.strip())
+                    if m:
+                        is_correct = bool(m.group(1))
+                        label = m.group(2).upper()
+                        text_opt = m.group(3).strip()
+                        opt = f"{label}. {text_opt}"
+                        options.append(opt)
                         if is_correct:
-                            correct_answer = f"{label}. {text_opt}"
+                            correct_answer = opt
 
-            # Chỉ thêm câu hợp lệ (>=2 đáp án)
             if len(options) >= 2:
                 if not correct_answer:
                     correct_answer = options[0]
@@ -97,7 +110,6 @@ def load_questions(docx_file, mode="law"):
                 current_q["answer"] = current_q["options"][0]
             questions.append(current_q)
 
-    # Trả về đúng thứ tự đọc từ file (không sắp xếp lại)
     return questions
 
 
@@ -121,6 +133,7 @@ st.markdown("""
         text-align: left;
         margin-top: 20px;
         margin-bottom: 10px;
+        line-height: 1.6;
     }
     .stRadio > label { font-weight: normal; font-size: 16px; }
     .stButton>button {
@@ -162,7 +175,7 @@ num_groups = math.ceil(TOTAL / group_size)
 group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
 
 # =====================
-# ⚙️ QUẢN LÝ TRẠNG THÁI
+# ⚙️ TRẠNG THÁI
 # =====================
 if "current_bank" not in st.session_state:
     st.session_state.current_bank = bank_choice
@@ -179,7 +192,7 @@ if st.session_state.current_bank != bank_choice:
     st.session_state.current_bank = bank_choice
 
 # =====================
-# 📋 CHỌN NHÓM CÂU HỎI
+# 📋 CHỌN NHÓM CÂU
 # =====================
 selected_group = st.selectbox("📘 Bạn muốn làm nhóm câu nào?", group_labels, index=0)
 
@@ -211,7 +224,6 @@ if not st.session_state.submitted:
         st.rerun()
 
 else:
-    # Tính điểm
     score = 0
     for i, q in enumerate(batch, start=start + 1):
         selected = st.session_state.get(f"q_{i}", "(Chưa chọn)")
