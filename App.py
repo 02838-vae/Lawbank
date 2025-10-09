@@ -6,112 +6,59 @@ import math
 # =====================
 # ⚙️ HÀM ĐỌC FILE WORD
 # =====================
-def load_questions(docx_file, mode="law"):
-    """Đọc câu hỏi từ file Word. mode = 'law' hoặc 'tech'."""
+def load_questions(docx_file):
+    """Đọc câu hỏi từ file Word, hỗ trợ numbering tự động."""
     try:
         doc = Document(docx_file)
     except Exception as e:
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
-    text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     questions = []
+    current_q = {"question": "", "options": [], "answer": None}
+    opt_re = re.compile(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)")
 
-    # ------------------------
-    # 1️⃣ Dạng kỹ thuật (đánh số 1., 2., 3. ...)
-    # ------------------------
-    if mode == "tech":
-        # Tách từng câu hỏi bắt đầu bằng số + dấu chấm + khoảng trắng
-        raw_blocks = re.split(r"(?=\n?\d+\.\s+)", text)
-        for block in raw_blocks:
-            block = block.strip()
-            if not re.match(r"^\d+\.", block):
-                continue
+    for line in paragraphs:
+        # Bỏ qua dòng "Ref:"
+        if re.match(r"^\s*Ref[:\.]", line, re.IGNORECASE):
+            continue
 
-            # Xóa phần đầu (số thứ tự)
-            lines = [l.strip() for l in block.splitlines() if l.strip()]
-            question_text = re.sub(r"^\d+\.\s*", "", lines[0]).strip()
-            rest_text = " ".join(lines[1:])
+        # Nếu là dòng đáp án
+        m = opt_re.match(line)
+        if m:
+            is_correct = bool(m.group(1))
+            label = m.group(2).upper()
+            text_opt = m.group(3).strip()
+            if text_opt:
+                current_q["options"].append(f"{label}. {text_opt}")
+                if is_correct:
+                    current_q["answer"] = f"{label}. {text_opt}"
+        else:
+            # Nếu đang có câu hỏi và đáp án → kết thúc câu cũ
+            if current_q["question"] and current_q["options"]:
+                if len(current_q["options"]) >= 2:
+                    if not current_q["answer"]:
+                        current_q["answer"] = current_q["options"][0]
+                    questions.append(current_q)
+                current_q = {"question": "", "options": [], "answer": None}
 
-            # Regex tách đáp án kể cả dính liền
-            pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*?)(?=(?:[\*]?\s*[a-dA-D][\.\)\-–:])|$)"
-            matches = re.findall(pattern, rest_text, re.DOTALL)
-
-            options = []
-            correct_answer = None
-
-            for m in matches:
-                is_correct = bool(m[0])
-                label = m[1].upper()
-                text_opt = re.sub(r"\s+", " ", m[2].strip())
-                if text_opt:
-                    opt = f"{label}. {text_opt}"
-                    options.append(opt)
-                    if is_correct:
-                        correct_answer = opt
-
-            # Nếu ít đáp án thì fallback
-            if len(options) < 2:
-                chunks = re.split(r"(?=[a-dA-D][\.\)\-–:])", rest_text)
-                for ch in chunks:
-                    m = re.match(r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.+)", ch.strip())
-                    if m:
-                        is_correct = bool(m.group(1))
-                        label = m.group(2).upper()
-                        text_opt = m.group(3).strip()
-                        opt = f"{label}. {text_opt}"
-                        options.append(opt)
-                        if is_correct:
-                            correct_answer = opt
-
-            if len(options) >= 2:
-                if not correct_answer:
-                    correct_answer = options[0]
-                questions.append({
-                    "question": question_text,
-                    "options": options,
-                    "answer": correct_answer
-                })
-
-    # ------------------------
-    # 2️⃣ Dạng luật (bình thường)
-    # ------------------------
-    else:
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        current_q = {"question": "", "options": [], "answer": None}
-        opt_re = re.compile(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)")
-
-        for line in paragraphs:
-            if re.match(r"^\s*Ref[:\.]", line, re.IGNORECASE):
-                continue
-
-            m = opt_re.match(line)
-            if m:
-                is_correct = bool(m.group(1))
-                label = m.group(2).upper()
-                text_opt = m.group(3).strip()
-                if text_opt:
-                    current_q["options"].append(f"{label}. {text_opt}")
-                    if is_correct:
-                        current_q["answer"] = f"{label}. {text_opt}"
+            # Nếu không phải đáp án → đây là dòng câu hỏi mới
+            if current_q["question"]:
+                current_q["question"] += " " + line
             else:
-                if current_q["options"]:
-                    if len(current_q["options"]) >= 2:
-                        if not current_q["answer"]:
-                            current_q["answer"] = current_q["options"][0]
-                        questions.append(current_q)
-                    current_q = {"question": "", "options": [], "answer": None}
+                current_q["question"] = line
 
-                if current_q["question"]:
-                    current_q["question"] += " " + line
-                else:
-                    current_q["question"] = line
+    # Thêm câu cuối cùng
+    if current_q["question"] and current_q["options"]:
+        if not current_q["answer"]:
+            current_q["answer"] = current_q["options"][0]
+        questions.append(current_q)
 
-        if current_q["options"] and len(current_q["options"]) >= 2:
-            if not current_q["answer"]:
-                current_q["answer"] = current_q["options"][0]
-            questions.append(current_q)
-
+    # Cắt bỏ khoảng trắng, giữ nguyên thứ tự
+    for q in questions:
+        q["question"] = q["question"].strip()
+        q["options"] = [opt.strip() for opt in q["options"] if opt.strip()]
     return questions
 
 
@@ -161,12 +108,11 @@ bank_choice = st.selectbox(
 )
 
 file_path = "bank.docx" if "Luật" in bank_choice else "cabbank.docx"
-mode = "law" if "Luật" in bank_choice else "tech"
 
 # =====================
 # 🧮 ĐỌC CÂU HỎI
 # =====================
-questions = load_questions(file_path, mode)
+questions = load_questions(file_path)
 if not questions:
     st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}.")
     st.stop()
