@@ -14,26 +14,26 @@ def load_questions(docx_file, mode="law"):
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
-    # Ghép toàn bộ text (đảm bảo giữ thứ tự gốc)
     text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
     questions = []
 
     # ------------------------
-    # 1️⃣ Dạng kỹ thuật (có dấu #)
+    # 1️⃣ Dạng kỹ thuật (đánh số 1., 2., 3. ...)
     # ------------------------
     if mode == "tech":
-        # Tách chính xác theo các câu bắt đầu bằng # và số (như #1, #2, ...)
-        raw_blocks = re.split(r"(?=\n?#\s*\d+\s*)", text)
+        # Tách từng câu hỏi bắt đầu bằng số + dấu chấm + khoảng trắng
+        raw_blocks = re.split(r"(?=\n?\d+\.\s+)", text)
         for block in raw_blocks:
             block = block.strip()
-            if not re.match(r"^#\s*\d+", block):
+            if not re.match(r"^\d+\.", block):
                 continue
 
+            # Xóa phần đầu (số thứ tự)
             lines = [l.strip() for l in block.splitlines() if l.strip()]
-            question_text = re.sub(r"^#+\s*\d+\s*", "", lines[0]).strip()
+            question_text = re.sub(r"^\d+\.\s*", "", lines[0]).strip()
             rest_text = " ".join(lines[1:])
 
-            # Regex tách đáp án dù dính liền
+            # Regex tách đáp án kể cả dính liền
             pattern = r"([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*?)(?=(?:[\*]?\s*[a-dA-D][\.\)\-–:])|$)"
             matches = re.findall(pattern, rest_text, re.DOTALL)
 
@@ -50,7 +50,7 @@ def load_questions(docx_file, mode="law"):
                     if is_correct:
                         correct_answer = opt
 
-            # Nếu ít đáp án → fallback
+            # Nếu ít đáp án thì fallback
             if len(options) < 2:
                 chunks = re.split(r"(?=[a-dA-D][\.\)\-–:])", rest_text)
                 for ch in chunks:
@@ -64,7 +64,6 @@ def load_questions(docx_file, mode="law"):
                         if is_correct:
                             correct_answer = opt
 
-            # Thêm câu hỏi nếu hợp lệ
             if len(options) >= 2:
                 if not correct_answer:
                     correct_answer = options[0]
@@ -113,7 +112,6 @@ def load_questions(docx_file, mode="law"):
                 current_q["answer"] = current_q["options"][0]
             questions.append(current_q)
 
-    # Trả về danh sách theo đúng thứ tự đọc được
     return questions
 
 
