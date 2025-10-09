@@ -7,84 +7,71 @@ import math
 # ⚙️ HÀM ĐỌC FILE WORD
 # =====================
 def load_questions(docx_file):
-    """Đọc câu hỏi từ file Word, định dạng:
+    """Đọc câu hỏi từ file Word có định dạng:
     # Câu hỏi
     a. ...
-    b.* ...
-    c. ...
+    b. ...
+    c. ...*
     d. ...
     """
+
     try:
         doc = Document(docx_file)
     except Exception as e:
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
+    # Lấy tất cả đoạn text không rỗng
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
-    # 🧩 Hiển thị trước 20 dòng để debug
+    # Gộp các dòng lại để xử lý dễ hơn (vì đôi khi Word nối các đáp án lại)
+    text = "\n".join(paragraphs)
+
+    # Tách riêng từng dòng nếu bị dính, ví dụ "a....b...."
+    # Regex này sẽ chèn xuống dòng trước a./b./c./d. nếu bị dính
+    text = re.sub(r'(?<!\n)(?=[a-d]\.)', '\n', text, flags=re.I)
+
+    # Chia lại thành danh sách dòng
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+    # 🧩 DEBUG — xem trước 30 dòng
     with st.expander("📋 Xem nội dung gốc từ Word (debug)"):
-        for i, p in enumerate(paragraphs[:20], 1):
-            st.write(f"{i:03d}: {p}")
+        for i, line in enumerate(lines[:30], 1):
+            st.write(f"{i:03d}: {line}")
 
     questions = []
     current_q = {"question": "", "options": [], "answer": ""}
 
-    for line in paragraphs:
-        line = line.strip()
-
-        # 🔹 Nếu dòng bắt đầu bằng '#' → là câu hỏi mới
+    for line in lines:
+        # Nếu là dòng câu hỏi (bắt đầu bằng #)
         if line.startswith("#"):
-            # Nếu câu trước có dữ liệu thì lưu lại
+            # Nếu đã có câu trước thì lưu lại
             if current_q["question"] and current_q["options"]:
-                if not current_q["answer"] and current_q["options"]:
-                    current_q["answer"] = current_q["options"][0]
                 questions.append(current_q)
+            # Bắt đầu câu mới
+            current_q = {"question": line[1:].strip(), "options": [], "answer": ""}
 
-            # Tạo câu hỏi mới
-            current_q = {"question": line.lstrip("#").strip(), "options": [], "answer": ""}
+        # Nếu là đáp án (a., b., c., d.)
+        elif re.match(r"^[a-d]\.", line, re.I):
+            option_text = line[2:].strip()
+            if "*" in option_text:
+                option_text = option_text.replace("*", "").strip()
+                current_q["answer"] = option_text
+            current_q["options"].append(option_text)
 
-        # 🔹 Nếu dòng là đáp án (a., b., c., d.)
-        elif re.match(r"^[a-dA-D][\.\)]", line):
-            # Kiểm tra dấu * (đáp án đúng)
-            is_correct = "*" in line
-
-            # Xóa ký tự * và ký hiệu a., b., c., ...
-            text = re.sub(r"^[a-dA-D][\.\)]\s*\*?", "", line).strip()
-
-            current_q["options"].append(text)
-            if is_correct:
-                current_q["answer"] = text
-
-        # 🔹 Nếu dòng bị dính liền (VD: "# Câu hỏi a. Đáp án 1")
+        # Nếu là dòng rác hoặc nối tiếp (hiếm)
         else:
-            # Cố tách ra nếu có pattern a. hoặc b. trong cùng dòng
-            parts = re.split(r"(?=[a-dA-D][\.\)])", line)
-            if len(parts) > 1:
-                # Dòng đầu tiên là phần câu hỏi
-                if not current_q["question"]:
-                    current_q["question"] = parts[0].lstrip("#").strip()
-                # Các phần sau là lựa chọn
-                for p in parts[1:]:
-                    if not p.strip():
-                        continue
-                    is_correct = "*" in p
-                    text = re.sub(r"^[a-dA-D][\.\)]\s*\*?", "", p).strip()
-                    current_q["options"].append(text)
-                    if is_correct:
-                        current_q["answer"] = text
-            else:
-                # Nếu chỉ là phần nối tiếp câu hỏi
-                if current_q["question"]:
-                    current_q["question"] += " " + line
+            # Nối thêm vào câu hỏi
+            if current_q["question"]:
+                current_q["question"] += " " + line
 
     # Thêm câu cuối cùng
     if current_q["question"] and current_q["options"]:
         if not current_q["answer"]:
-            current_q["answer"] = current_q["options"][0]
+            current_q["answer"] = current_q["options"][0]  # nếu thiếu dấu *
         questions.append(current_q)
 
-    # Làm sạch
+    # Làm sạch dữ liệu
     for q in questions:
         q["question"] = q["question"].strip()
         q["options"] = [opt.strip() for opt in q["options"] if opt.strip()]
@@ -144,7 +131,7 @@ file_path = "bank.docx" if "Luật" in bank_choice else "cabbank.docx"
 # =====================
 questions = load_questions(file_path)
 if not questions:
-    st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}.")
+    st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}. Kiểm tra định dạng trong Word.")
     st.stop()
 
 TOTAL = len(questions)
