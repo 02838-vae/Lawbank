@@ -4,7 +4,7 @@ import re
 import math
 
 # =====================
-# ⚙️ Hàm trích xuất câu hỏi từ file Word
+# ⚙️ Hàm đọc file Word
 # =====================
 def load_questions(docx_file):
     try:
@@ -16,16 +16,12 @@ def load_questions(docx_file):
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     questions = []
     current_q = {"question": "", "options": [], "answer": None}
-
-    # Regex linh hoạt cho đáp án
     opt_re = re.compile(r"^\s*([\*]?)\s*([a-dA-D])[\.\)\-–:]\s*(.*)")
 
     for line in paragraphs:
-        # Bỏ dòng Ref hoặc ghi chú
         if re.match(r"^\s*Ref[:\.]", line, re.IGNORECASE):
             continue
 
-        # Nếu là đáp án
         m = opt_re.match(line)
         if m:
             is_correct = bool(m.group(1))
@@ -36,7 +32,6 @@ def load_questions(docx_file):
                 if is_correct:
                     current_q["answer"] = f"{label}. {text}"
         else:
-            # Nếu câu trước đã có đáp án, lưu lại
             if current_q["options"]:
                 if len(current_q["options"]) >= 2:
                     if not current_q["answer"]:
@@ -44,13 +39,11 @@ def load_questions(docx_file):
                     questions.append(current_q)
                 current_q = {"question": "", "options": [], "answer": None}
 
-            # Câu hỏi mới
             if current_q["question"]:
                 current_q["question"] += " " + line
             else:
                 current_q["question"] = line
 
-    # Thêm câu cuối
     if current_q["options"] and len(current_q["options"]) >= 2:
         if not current_q["answer"]:
             current_q["answer"] = current_q["options"][0]
@@ -59,7 +52,7 @@ def load_questions(docx_file):
     return questions
 
 # =====================
-# ⚙️ Giao diện
+# ⚙️ Giao diện tổng thể
 # =====================
 st.set_page_config(page_title="Ngân hàng câu hỏi", layout="wide")
 
@@ -91,21 +84,24 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# =====================
+# 🧩 Chọn ngân hàng
+# =====================
 st.markdown("<h1>📚 Ngân hàng câu hỏi</h1>", unsafe_allow_html=True)
-
-# =====================
-# 📘 Chọn ngân hàng câu hỏi
-# =====================
 bank_choice = st.selectbox(
     "Chọn ngân hàng muốn làm:",
-    ["Ngân hàng Luật (bank.docx)", "Ngân hàng Kỹ thuật (cabbank.docx)"]
+    ["Ngân hàng Luật", "Ngân hàng Kỹ thuật"],
+    index=0
 )
 
 file_path = "bank.docx" if "Luật" in bank_choice else "cabbank.docx"
-questions = load_questions(file_path)
 
+# =====================
+# 🧮 Đọc và chia nhóm câu hỏi
+# =====================
+questions = load_questions(file_path)
 if not questions:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file Word.")
+    st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}.")
     st.stop()
 
 TOTAL = len(questions)
@@ -114,16 +110,28 @@ num_groups = math.ceil(TOTAL / group_size)
 group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
 
 # =====================
-# 📋 Chọn nhóm câu hỏi
+# ⚙️ Quản lý trạng thái
 # =====================
+if "current_bank" not in st.session_state:
+    st.session_state.current_bank = bank_choice
 if "last_group" not in st.session_state:
     st.session_state.last_group = None
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
 
+# Reset khi đổi ngân hàng
+if st.session_state.current_bank != bank_choice:
+    for k in list(st.session_state.keys()):
+        if k.startswith("q_"):
+            del st.session_state[k]
+    st.session_state.submitted = False
+    st.session_state.current_bank = bank_choice
+
+# =====================
+# 📋 Chọn nhóm câu hỏi
+# =====================
 selected_group = st.selectbox("📘 Bạn muốn làm nhóm câu nào?", group_labels, index=0)
 
-# Reset khi đổi nhóm hoặc ngân hàng
 if st.session_state.last_group != (selected_group + file_path):
     for k in list(st.session_state.keys()):
         if k.startswith("q_"):
@@ -136,7 +144,7 @@ end = min(start + group_size, TOTAL)
 batch = questions[start:end]
 
 # =====================
-# 📄 Hiển thị câu hỏi
+# 📄 Hiển thị câu hỏi và xử lý bài làm
 # =====================
 if not st.session_state.submitted:
     st.markdown(f"### 🧩 Nhóm {selected_group}")
@@ -152,7 +160,6 @@ if not st.session_state.submitted:
         st.rerun()
 
 else:
-    # Hiển thị kết quả
     score = 0
     for i, q in enumerate(batch, start=start + 1):
         selected = st.session_state.get(f"q_{i}", "(Chưa chọn)")
