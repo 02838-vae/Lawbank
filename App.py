@@ -3,72 +3,65 @@ from docx import Document
 import re
 import math
 
-# -----------------------
-# Helpers: chuẩn hoá chuỗi
-# -----------------------
+
+# ==========================
+# 🔧 HÀM XỬ LÝ CHUNG
+# ==========================
 def clean_text(s: str) -> str:
+    """Chuẩn hóa khoảng trắng"""
     return re.sub(r'\s+', ' ', s).strip()
 
-# -----------------------
-# Hàm đọc lawbank (có số thứ tự và Ref)
-# -----------------------
-def load_lawbank(docx_file):
+
+# ==========================
+# 📘 PARSER CHO LAW BANK
+# ==========================
+def parse_lawbank(docx_file):
     """
-    Đọc lawbank: file có đánh số 1., 2., ... mỗi block có câu hỏi, đáp án a./b./c./d. 
-    Đáp án đúng có dấu * ở trước chữ cái (ví dụ *a. ...). Có thể có "Ref."
+    Đọc file lawbank.docx (định dạng có số thứ tự, đáp án a./b./c., Ref. ở cuối)
     """
     try:
         doc = Document(docx_file)
     except Exception as e:
-        st.error(f"❌ Không thể đọc file lawbank: {e}")
+        st.error(f"Không thể đọc file lawbank.docx: {e}")
         return []
 
-    text = "\n".join([p.text for p in doc.paragraphs if p.text and p.text.strip()])
-    if not text.strip():
-        return []
-
-    # Tách blocks theo số thứ tự (1., 2., ...)
-    blocks = re.finditer(r'\d+\.\s*(.*?)(?=(?:\n\s*\d+\.\s*)|\Z)', text, flags=re.S)
+    text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+    # Tách các khối câu hỏi bắt đầu bằng số thứ tự
+    blocks = re.split(r'\n\s*\d+\.\s*', text)
     questions = []
 
-    for b in blocks:
-        part = b.group(1).strip()
-        if not part:
+    for block in blocks:
+        if not block.strip():
+            continue
+        # Loại phần Ref.
+        block = re.split(r'Ref[:.]', block, flags=re.I)[0]
+        # Chèn xuống dòng trước mỗi đáp án (a., b., c., d. hoặc *a.)
+        block = re.sub(r'(?<!\n)(?=[*]?\s*[A-Da-d]\s*[.\)])', '\n', block)
+        lines = [clean_text(l) for l in block.split("\n") if l.strip()]
+
+        if len(lines) < 2:
             continue
 
-        # Loại bỏ phần Ref nếu có (không cần)
-        part = re.split(r'\bRef[:.]', part, flags=re.I)[0].strip()
-
-        # Thêm newline trước mọi marker đáp án (a. b. c. d. hoặc a) b) ...), kể cả *a.)
-        part = re.sub(r'(?<!\n)(?=[*]?\s*[A-Da-d]\s*[.\)])', '\n', part)
-
-        lines = [l.strip() for l in part.splitlines() if l.strip()]
-        if not lines:
-            continue
-
-        # Dòng đầu là question (có thể dài)
-        qtext = clean_text(lines[0])
-
+        qtext = lines[0]
         opts = []
         correct = ""
 
         for ln in lines[1:]:
-            m = re.match(r'^[*]?\s*([A-Da-d])\s*[.\)]\s*(.*)$', ln, flags=re.S)
+            m = re.match(r'^[*]?\s*([A-Da-d])\s*[.\)]\s*(.*)$', ln)
             if m:
                 letter = m.group(1).lower()
-                opt_body = clean_text(m.group(2))
-                opt_string = f"{letter}. {opt_body}"
-                opts.append(opt_string)
+                body = m.group(2).strip()
+                full_opt = f"{letter}. {body}"
+                opts.append(full_opt)
                 if ln.strip().startswith("*"):
-                    correct = opt_string
+                    correct = full_opt
             else:
-                # nếu có dòng không khớp marker đáp án, có thể dòng nối tiếp của đáp án trước -> nối vào cuối option trước
+                # dòng nối dài
                 if opts:
-                    opts[-1] = opts[-1] + " " + clean_text(ln)
+                    opts[-1] += " " + ln
                     opts[-1] = clean_text(opts[-1])
                 else:
-                    # nếu chưa có options, nối vào câu hỏi
-                    qtext = qtext + " " + clean_text(ln)
+                    qtext += " " + ln
 
         if opts:
             if not correct:
@@ -78,196 +71,115 @@ def load_lawbank(docx_file):
     return questions
 
 
-# -----------------------
-# Hàm đọc cabbank (không đánh số, đáp án có thể dính)
-# -----------------------
-def load_cabbank(docx_file):
+# ==========================
+# 📗 PARSER CHO CAB BANK
+# ==========================
+def parse_cabbank(docx_file):
     """
-    Đọc cabbank: không đánh số. Mỗi câu là một hoặc nhiều đoạn văn, sau đó có a./b./c. (có thể dính).
-    Đáp án đúng có dấu * ở trước chữ cái.
+    Đọc file cabbank.docx (không đánh số, đáp án có thể dính liền dòng)
     """
     try:
         doc = Document(docx_file)
     except Exception as e:
-        st.error(f"❌ Không thể đọc file cabbank: {e}")
+        st.error(f"Không thể đọc file cabbank.docx: {e}")
         return []
 
-    paragraphs = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
-    if not paragraphs:
-        return []
-
-    text = "\n".join(paragraphs)
-
-    # Thêm newline trước mọi marker đáp án (a. b. c. d. hoặc a) b) ...), kể cả *a.)
+    text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
     text = re.sub(r'(?<!\n)(?=[*]?\s*[A-Da-d]\s*[.\)])', '\n', text)
-
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [clean_text(l) for l in text.split("\n") if l.strip()]
 
     questions = []
-    current_q = {"question": "", "options": [], "answer": ""}
+    current = {"question": "", "options": [], "answer": ""}
 
     for ln in lines:
-        m = re.match(r'^[*]?\s*([A-Da-d])\s*[.\)]\s*(.*)$', ln, flags=re.S)
-        if m:
-            # Đây là dòng đáp án
-            letter = m.group(1).lower()
-            body = clean_text(m.group(2))
-            opt_string = f"{letter}. {body}"
-            current_q["options"].append(opt_string)
+        # dòng đáp án
+        if re.match(r'^[*]?\s*[A-Da-d]\s*[.\)]', ln):
+            opt_text = re.sub(r'^[*]?\s*[A-Da-d]\s*[.\)]\s*', '', ln)
+            letter = ln.strip()[1].lower() if ln.strip()[0] == "*" else ln.strip()[0].lower()
+            full_opt = f"{letter}. {opt_text.strip()}"
+            current["options"].append(full_opt)
             if ln.strip().startswith("*"):
-                current_q["answer"] = opt_string
+                current["answer"] = full_opt
         else:
-            # Không phải đáp án => câu hỏi (hoặc nối tiếp câu hỏi)
-            if current_q["options"]:
-                # đã có options từ câu trước -> lưu câu trước và bắt đầu câu mới
-                if not current_q["answer"] and current_q["options"]:
-                    current_q["answer"] = current_q["options"][0]
-                questions.append(current_q)
-                current_q = {"question": clean_text(ln), "options": [], "answer": ""}
-            else:
-                # chưa có options: nối tiếp câu hỏi
-                if current_q["question"]:
-                    current_q["question"] = clean_text(current_q["question"] + " " + ln)
-                else:
-                    current_q["question"] = clean_text(ln)
+            # dòng câu hỏi
+            if current["options"]:
+                # nếu đang có options -> lưu lại câu hỏi cũ
+                if not current["answer"] and current["options"]:
+                    current["answer"] = current["options"][0]
+                questions.append(current)
+                current = {"question": "", "options": [], "answer": ""}
+            current["question"] += (" " + ln).strip()
 
-    # Thêm câu cuối cùng nếu có
-    if current_q["question"] and current_q["options"]:
-        if not current_q["answer"]:
-            current_q["answer"] = current_q["options"][0]
-        questions.append(current_q)
+    # thêm câu cuối
+    if current["question"] and current["options"]:
+        if not current["answer"]:
+            current["answer"] = current["options"][0]
+        questions.append(current)
 
     return questions
 
 
-# -----------------------
-# Giao diện Streamlit
-# -----------------------
-st.set_page_config(page_title="Ngân hàng câu hỏi", layout="wide")
-st.title("📚 Ngân hàng câu hỏi (Lawbank & Cabbank)")
+# ==========================
+# ⚙️ GIAO DIỆN STREAMLIT
+# ==========================
+st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
+st.title("📚 Ngân hàng câu hỏi trắc nghiệm")
 
-# Cho phép upload .docx để test (ưu tiên file upload nếu có)
-uploaded_file = st.file_uploader("Upload file .docx (nếu muốn test file bất kỳ)", type=["docx"])
+# --- Bước 1: chọn ngân hàng ---
+bank_choice = st.selectbox(
+    "Chọn ngân hàng câu hỏi:",
+    ["Ngân hàng Luật", "Ngân hàng Kỹ thuật"]
+)
 
-bank_choice = st.selectbox("Chọn ngân hàng muốn làm:", ["Ngân hàng Luật", "Ngân hàng Kỹ thuật"])
-
-# Nếu upload file, dùng file đó; nếu không, dùng file mặc định
-if uploaded_file is not None:
-    file_source = uploaded_file
-else:
-    file_source = "lawbank.docx" if "Luật" in bank_choice else "cabbank.docx"
-
-# Load questions theo lựa chọn
+# --- Bước 2: đọc file ---
 if "Luật" in bank_choice:
-    questions = load_lawbank(file_source)
+    file_path = "lawbank.docx"
+    questions = parse_lawbank(file_path)
 else:
-    questions = load_cabbank(file_source)
+    file_path = "cabbank.docx"
+    questions = parse_cabbank(file_path)
 
-# Debug: hiện số câu và 3 câu đầu trong expander để bạn kiểm tra nhanh
-with st.expander("🔍 Debug: Xem trước kết quả parsing (3 câu đầu)"):
-    st.write(f"Bank: {bank_choice}")
-    st.write(f"Số câu đọc được: {len(questions)}")
-    for idx, q in enumerate(questions[:3], start=1):
-        st.markdown(f"**{idx}.** {q['question']}")
-        for o in q['options']:
-            marker = "✅" if o == q['answer'] else ""
-            st.write(f"- {o} {marker}")
-
+# --- Bước 3: kiểm tra kết quả parse ---
 if not questions:
-    st.error(f"Không đọc được câu hỏi nào từ file cho ngân hàng '{bank_choice}'.\n- Nếu bạn dùng file mặc định, kiểm tra tên file và định dạng.\n- Nếu bạn upload, đảm bảo file .docx chứa câu hỏi theo cấu trúc (câu rồi các đáp án a./b./c.).")
+    st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}. Kiểm tra định dạng file .docx.")
     st.stop()
 
-# Phân nhóm
-TOTAL = len(questions)
-group_size = 10
-num_groups = math.ceil(TOTAL / group_size)
-group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
+st.success(f"✅ Đã đọc được {len(questions)} câu hỏi từ {file_path}.")
 
-# Session state cơ bản
-if "current_bank" not in st.session_state:
-    st.session_state.current_bank = bank_choice
-if "last_group" not in st.session_state:
-    st.session_state.last_group = None
-if "submitted" not in st.session_state:
+with st.expander("🔍 Xem trước 5 câu đầu (kiểm tra parsing)"):
+    for i, q in enumerate(questions[:5], 1):
+        st.markdown(f"**{i}. {q['question']}**")
+        for opt in q["options"]:
+            mark = "✅" if opt == q["answer"] else ""
+            st.write(f"- {opt} {mark}")
+        st.markdown("---")
+
+# --- Bước 4: bắt đầu làm bài ---
+if st.button("🚀 Bắt đầu làm bài"):
+    group_size = 10
+    TOTAL = len(questions)
+    group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(math.ceil(TOTAL/group_size))]
+    selected_group = st.selectbox("Chọn nhóm câu hỏi:", group_labels, index=0)
+    start = group_labels.index(selected_group) * group_size
+    end = min(start + group_size, TOTAL)
+    batch = questions[start:end]
+
     st.session_state.submitted = False
 
-# Reset khi đổi ngân hàng
-if st.session_state.current_bank != bank_choice:
-    for k in list(st.session_state.keys()):
-        if k.startswith("q_"):
-            del st.session_state[k]
-    st.session_state.submitted = False
-    st.session_state.current_bank = bank_choice
-
-# Chọn nhóm
-selected_group = st.selectbox("📘 Bạn muốn làm nhóm câu nào?", group_labels, index=0)
-
-if st.session_state.last_group != (selected_group + bank_choice):
-    for k in list(st.session_state.keys()):
-        if k.startswith("q_"):
-            del st.session_state[k]
-    st.session_state.submitted = False
-    st.session_state.last_group = selected_group + bank_choice
-
-start = group_labels.index(selected_group) * group_size
-end = min(start + group_size, TOTAL)
-batch = questions[start:end]
-
-# Hiển thị câu hỏi
-placeholder_choice = "-- Chưa chọn --"
-
-if not st.session_state.submitted:
-    st.markdown(f"### 🧩 Nhóm {selected_group}  (tổng {len(batch)} câu)")
+    placeholder_choice = "-- Chưa chọn --"
     for i, q in enumerate(batch, start=start + 1):
-        st.markdown(f"<div style='text-align:left'><b>{i}. {q['question']}</b></div>", unsafe_allow_html=True)
-        options_ui = [placeholder_choice] + q["options"]
-        # Lưu giá trị chọn (mặc định là placeholder)
-        st.radio("", options_ui, index=0, key=f"q_{i}")
+        st.markdown(f"### {i}. {q['question']}")
+        st.radio("", [placeholder_choice] + q["options"], key=f"q_{i}", index=0)
         st.markdown("<hr>", unsafe_allow_html=True)
 
-    if st.button("✅ Nộp bài và xem kết quả"):
-        unanswered = [i for i in range(start + 1, end + 1) if st.session_state.get(f"q_{i}") in (None, placeholder_choice)]
-        if unanswered:
-            st.warning(f"⚠️ Bạn chưa chọn đáp án cho {len(unanswered)} câu: {', '.join(map(str, unanswered))}")
-        else:
-            st.session_state.submitted = True
-            st.experimental_rerun()
-
-else:
-    # Tính điểm và hiển thị kết quả
-    score = 0
-    for i, q in enumerate(batch, start=start + 1):
-        selected = st.session_state.get(f"q_{i}")
-        # Nếu user chọn placeholder, treat as None
-        if selected in (None, placeholder_choice):
-            selected_display = None
-        else:
-            selected_display = selected
-        correct = q["answer"]
-
-        if selected_display == correct:
-            score += 1
-            st.success(f"{i}. {q['question']}\n\n✅ Đúng — {correct}")
-        else:
-            st.error(f"{i}. {q['question']}\n\n❌ Sai. Bạn chọn: **{selected_display or '---'}**  → Đáp án đúng: **{correct}**")
-        st.markdown("<hr>", unsafe_allow_html=True)
-
-    st.subheader(f"🎯 Kết quả: {score}/{len(batch)} câu đúng")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🔁 Làm lại nhóm này"):
-            for i in range(start + 1, end + 1):
-                key = f"q_{i}"
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.session_state.submitted = False
-            st.experimental_rerun()
-    with col2:
-        if st.button("➡️ Sang nhóm khác"):
-            for i in range(start + 1, end + 1):
-                key = f"q_{i}"
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.session_state.submitted = False
-            st.experimental_rerun()
+    if st.button("✅ Nộp bài"):
+        score = 0
+        for i, q in enumerate(batch, start=start + 1):
+            selected = st.session_state.get(f"q_{i}")
+            correct = q["answer"]
+            if selected == correct:
+                score += 1
+                st.success(f"{i}. ✅ Đúng ({correct})")
+            else:
+                st.error(f"{i}. ❌ Sai ({selected}) — Đúng: {correct}")
+        st.subheader(f"🎯 Kết quả: {score}/{len(batch)} câu đúng")
