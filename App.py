@@ -53,7 +53,8 @@ def parse_cabbank(source):
                 current["question"] = clean_text(pre_text)
 
         for i, m in enumerate(matches):
-            s, e = m.end(), matches[i + 1].start() if i + 1 < len(p) else len(p)
+            # <-- FIX: so s, e with matches length, not len(p)
+            s, e = m.end(), matches[i + 1].start() if i + 1 < len(matches) else len(p)
             opt_body = clean_text(p[s:e])
             opt = f"{m.group('letter').lower()}. {opt_body}"
             current["options"].append(opt)
@@ -78,27 +79,27 @@ def parse_lawbank(source):
     opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
+        # Bỏ dòng Ref hoặc các dòng tham chiếu
         if re.match(r'^\s*Ref', p, re.I):
             continue
 
         matches = list(opt_pat.finditer(p))
         if not matches:
+            # Không có đáp án trong dòng => phần của câu hỏi
             if current["options"]:
+                # Dòng mới => câu hỏi mới
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {
-                        k: clean_text(v)
-                        if isinstance(v, str)
-                        else [clean_text(x) for x in v]
-                        for k, v in current.items()
-                    }
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(p), "options": [], "answer": ""}
             else:
                 current["question"] += " " + clean_text(p)
             continue
 
+        # Dòng có đáp án
         first_match = matches[0]
         pre_text = p[:first_match.start()].strip()
         if pre_text:
@@ -106,12 +107,8 @@ def parse_lawbank(source):
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {
-                        k: clean_text(v)
-                        if isinstance(v, str)
-                        else [clean_text(x) for x in v]
-                        for k, v in current.items()
-                    }
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(pre_text), "options": [], "answer": ""}
             else:
@@ -119,7 +116,7 @@ def parse_lawbank(source):
 
         for i, m in enumerate(matches):
             s = m.end()
-            e = matches[i + 1].start() if i + 1 < len(matches) else len(p)
+            e = matches[i+1].start() if i+1 < len(matches) else len(p)
             opt_body = clean_text(p[s:e])
             letter = m.group("letter").lower()
             option = f"{letter}. {opt_body}"
@@ -127,15 +124,12 @@ def parse_lawbank(source):
             if m.group("star"):
                 current["answer"] = option
 
+    # Đóng câu cuối
     if current["question"] and current["options"]:
         if not current["answer"]:
             current["answer"] = current["options"][0]
-        current = {
-            k: clean_text(v)
-            if isinstance(v, str)
-            else [clean_text(x) for x in v]
-            for k, v in current.items()
-        }
+        current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                   for k, v in current.items()}
         questions.append(current)
 
     return questions
