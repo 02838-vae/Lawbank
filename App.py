@@ -133,7 +133,7 @@ st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
     img_base64 = base64.b64encode(f.read()).decode()
 
-# === CSS PHONG CÁCH RÕ HƠN ===
+# === CSS: rõ nét, dễ nhìn trên mobile ===
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
@@ -143,47 +143,45 @@ st.markdown(f"""
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
-    position: relative;
 }}
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: absolute; inset: 0;
-    background: rgba(255,248,235,0.82);
+    background: rgba(255,248,235,0.85);
     backdrop-filter: blur(3px);
     z-index: 0;
 }}
-
 h1 {{
     text-align: center;
     font-family: 'Playfair Display', serif;
     font-size: 2.5em;
     color: #2a1f0f;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.15);
     margin-top: 0.2em;
-    position: relative;
     z-index: 1;
 }}
+/* Tăng độ tương phản câu hỏi và đáp án */
 .stRadio label {{
     color: #1a1a1a !important;
-    font-size: 1.05em !important;
+    font-size: 1.1em !important;
+    font-weight: 500;
+}}
+div[data-testid="stMarkdownContainer"] p {{
+    color: #1a1a1a !important;
 }}
 .stSelectbox label {{
     font-size: 1.2em;
     color: #2a1f0f;
 }}
-div[data-baseweb="select"] {{
-    font-size: 1.1em;
-}}
 .stButton>button {{
     background-color: #b0854c !important;
-    color: #fff;
+    color: white !important;
     border-radius: 10px;
     font-size: 1.05em;
     font-family: 'Crimson Text', serif;
 }}
 .stButton>button:hover {{
     background-color: #8a693c !important;
-    transform: scale(1.02);
+    transform: scale(1.03);
 }}
 </style>
 """, unsafe_allow_html=True)
