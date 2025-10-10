@@ -1,4 +1,4 @@
-# app.py — bản hoàn chỉnh với nền mờ & căn giữa tiêu đề
+# app.py — bản hoàn thiện phong cách vintage + nền mờ hiển thị đúng
 import streamlit as st
 from docx import Document
 import re
@@ -109,7 +109,6 @@ def parse_lawbank(source):
         block = block.strip()
         if not block:
             continue
-        # Bỏ số thứ tự đầu
         block = re.sub(r'^\d+\s*[.)]\s*', '', block)
 
         matches = list(opt_pat.finditer(block))
@@ -141,38 +140,88 @@ def parse_lawbank(source):
 # ====================================================
 st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 
-# CSS nền mờ + căn giữa tiêu đề
+# ========== CSS VINTAGE STYLE ==========
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=Crimson+Text&display=swap');
+
     [data-testid="stAppViewContainer"] {
         background-image: url("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg");
         background-size: cover;
-        background-repeat: no-repeat;
+        background-attachment: fixed;
         background-position: center;
     }
+
     [data-testid="stAppViewContainer"]::before {
         content: "";
         position: absolute;
         top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(255,255,255,0.7);
-        backdrop-filter: blur(6px);
+        background: rgba(250, 245, 235, 0.85);
+        backdrop-filter: blur(5px);
         z-index: 0;
     }
+
     h1 {
         text-align: center !important;
-        font-size: 2.3em !important;
-        font-weight: 700 !important;
-        color: #0f172a !important;
-        z-index: 1;
+        font-family: 'Playfair Display', serif !important;
+        font-size: 2.5em !important;
+        color: #4b3f2f !important;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+        margin-top: 0.5em;
         position: relative;
+        z-index: 1;
     }
+
+    label, .stSelectbox label, .stTextInput label {
+        font-family: 'Crimson Text', serif !important;
+        font-size: 1.3em !important;
+        font-weight: 600 !important;
+        color: #3b2f23 !important;
+    }
+
+    .stSelectbox, .stTextInput {
+        background-color: #f9f5ec !important;
+        border-radius: 10px !important;
+        border: 1px solid #c8b69e !important;
+        padding: 5px !important;
+    }
+
+    div[data-baseweb="select"] {
+        font-size: 1.2em !important;
+    }
+
+    .stButton>button {
+        background-color: #bca37f !important;
+        color: white !important;
+        border: none;
+        border-radius: 10px;
+        font-size: 1.1em;
+        font-family: 'Crimson Text', serif !important;
+        transition: all 0.2s ease-in-out;
+    }
+    .stButton>button:hover {
+        background-color: #a68963 !important;
+        transform: scale(1.03);
+    }
+
+    .stMarkdown {
+        font-family: 'Crimson Text', serif !important;
+        font-size: 1.1em !important;
+        color: #2b2118 !important;
+        position: relative;
+        z-index: 1;
+    }
+
     </style>
     """,
     unsafe_allow_html=True
 )
 
-st.markdown("<h1>📚 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
+# ====================================================
+# 🏷️ TIÊU ĐỀ
+# ====================================================
+st.markdown("<h1>📜 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
 
 # ====================================================
 # 🧩 CHỌN NGÂN HÀNG
@@ -186,7 +235,7 @@ else:
     questions = parse_lawbank(source)
 
 if not questions:
-    st.error("Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc đường dẫn.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file .docx hoặc đường dẫn.")
     st.stop()
 
 # ====================================================
