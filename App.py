@@ -4,35 +4,75 @@ import re
 import math
 
 # =====================================
-# ⚙️ HÀM ĐỌC FILE WORD CHUNG
+# ⚙️ HÀM ĐỌC FILE CHO CABBANK (CODE CŨ GIỮ NGUYÊN)
 # =====================================
-def load_questions(docx_file, remove_ref=False):
-    """Đọc câu hỏi từ file Word, định dạng:
-    Câu hỏi
-    a. ...
-    b. ...
-    *c. ...
-    Ref: ...
-    """
-
+def load_cabbank(docx_file):
     try:
         doc = Document(docx_file)
     except Exception as e:
         st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
-    # Lấy tất cả đoạn có text
     paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     text = "\n".join(paragraphs)
 
     # Chèn xuống dòng trước các đáp án nếu dính liền
     text = re.sub(r'(?<!\n)(?=[a-d]\s*\.)', '\n', text, flags=re.I)
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
 
-    # Nếu là lawbank thì bỏ tất cả dòng REF
-    if remove_ref:
-        text = re.sub(r'(?i)\n*Ref.*', '', text)
+    questions = []
+    current_q = {"question": "", "options": [], "answer": ""}
 
-    # Chia dòng
+    for line in lines:
+        # Nếu là đáp án
+        if re.match(r"^\*?[a-d]\s*\.", line, re.I):
+            is_correct = line.strip().startswith("*")
+            line_clean = line.replace("*", "").strip()
+            option_text = re.sub(r"^[a-d]\s*\.\s*", "", line_clean, flags=re.I).strip()
+
+            if is_correct:
+                current_q["answer"] = option_text
+            current_q["options"].append(option_text)
+        else:
+            # Nếu đang có câu hỏi và option, thì lưu lại
+            if current_q["question"] and current_q["options"]:
+                questions.append(current_q)
+                current_q = {"question": "", "options": [], "answer": ""}
+
+            current_q["question"] = line
+
+    if current_q["question"] and current_q["options"]:
+        questions.append(current_q)
+
+    for q in questions:
+        q["question"] = q["question"].strip()
+        q["options"] = [opt.strip() for opt in q["options"] if opt.strip()]
+        if not q["answer"] and q["options"]:
+            q["answer"] = q["options"][0]
+
+    return questions
+
+
+# =====================================
+# ⚙️ HÀM ĐỌC FILE CHO LAWBANK (MỚI)
+# =====================================
+def load_lawbank(docx_file):
+    try:
+        doc = Document(docx_file)
+    except Exception as e:
+        st.error(f"❌ Không thể đọc file {docx_file}: {e}")
+        return []
+
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+
+    # Gộp lại để xử lý, chèn xuống dòng khi gặp các đáp án
+    text = "\n".join(paragraphs)
+    text = re.sub(r'(?<!\n)(?=[a-d]\s*\.)', '\n', text, flags=re.I)
+    text = re.sub(r'(?<!\n)(?=\*[a-d]\s*\.)', '\n', text, flags=re.I)
+
+    # Loại bỏ dòng REF
+    text = re.sub(r'(?i)\n*Ref[:.].*', '', text)
+
     lines = [line.strip() for line in text.split("\n") if line.strip()]
 
     questions = []
@@ -40,34 +80,29 @@ def load_questions(docx_file, remove_ref=False):
 
     for line in lines:
         # Nếu là dòng đáp án
-        if re.match(r"^[a-d]\s*\.", line, re.I) or re.match(r"^\*[a-d]\s*\.", line, re.I):
+        if re.match(r"^\*?[a-d]\s*\.", line, re.I):
             is_correct = line.strip().startswith("*")
             line_clean = line.replace("*", "").strip()
-            label = line_clean[:2].strip()  # "a."
-            option_text = line_clean[2:].strip()
+            option_text = re.sub(r"^[a-d]\s*\.\s*", "", line_clean, flags=re.I).strip()
 
             if is_correct:
                 current_q["answer"] = option_text
-
             current_q["options"].append(option_text)
-
-        # Nếu là dòng câu hỏi (không bắt đầu bằng a/b/c/d)
         else:
-            # Nếu đang có câu hỏi cũ thì lưu lại
+            # Nếu đang có câu hỏi và option, thì lưu lại
             if current_q["question"] and current_q["options"]:
                 questions.append(current_q)
                 current_q = {"question": "", "options": [], "answer": ""}
 
             current_q["question"] = line
 
-    # Thêm câu cuối cùng
     if current_q["question"] and current_q["options"]:
         questions.append(current_q)
 
     # Làm sạch
     for q in questions:
         q["question"] = q["question"].strip()
-        q["options"] = [o.strip() for o in q["options"] if o.strip()]
+        q["options"] = [opt.strip() for opt in q["options"] if opt.strip()]
         if not q["answer"] and q["options"]:
             q["answer"] = q["options"][0]
 
@@ -109,13 +144,16 @@ bank_choice = st.selectbox(
     index=0
 )
 
-file_path = "lawbank.docx" if "Luật" in bank_choice else "cabbank.docx"
-remove_ref = "Luật" in bank_choice
-
 # =====================================
 # 🧮 ĐỌC CÂU HỎI
 # =====================================
-questions = load_questions(file_path, remove_ref=remove_ref)
+if "Luật" in bank_choice:
+    file_path = "lawbank.docx"
+    questions = load_lawbank(file_path)
+else:
+    file_path = "cabbank.docx"
+    questions = load_cabbank(file_path)
+
 if not questions:
     st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}. Kiểm tra định dạng trong Word.")
     st.stop()
