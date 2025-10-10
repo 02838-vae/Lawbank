@@ -3,163 +3,204 @@ from docx import Document
 import re
 import math
 
-# ==========================
-# 🧩 ĐỌC FILE LAW BANK
-# ==========================
-def parse_lawbank(source):
+# =====================================
+# ⚙️ HÀM ĐỌC FILE WORD CHUNG
+# =====================================
+def load_questions(docx_file, remove_ref=False):
+    """Đọc câu hỏi từ file Word, định dạng:
+    Câu hỏi
+    a. ...
+    b. ...
+    *c. ...
+    Ref: ...
+    """
+
     try:
-        doc = Document(source)
+        doc = Document(docx_file)
     except Exception as e:
-        st.error(f"Lỗi đọc file: {e}")
+        st.error(f"❌ Không thể đọc file {docx_file}: {e}")
         return []
 
-    # Lấy toàn bộ text (ghép các đoạn lại)
-    full_text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+    # Lấy tất cả đoạn có text
+    paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    text = "\n".join(paragraphs)
 
-    # Bỏ dòng Ref
-    full_text = re.sub(r"(?i)Ref[:].*?(?=\n\d+\.|$)", "", full_text)
+    # Chèn xuống dòng trước các đáp án nếu dính liền
+    text = re.sub(r'(?<!\n)(?=[a-d]\s*\.)', '\n', text, flags=re.I)
 
-    # Gom các đáp án a,b,c,d nếu dính liền nhau (a....b....c....)
-    full_text = re.sub(r'(?<!\n)(?=[*]?[a-dA-D][\.\)])', '\n', full_text)
+    # Nếu là lawbank thì bỏ tất cả dòng REF
+    if remove_ref:
+        text = re.sub(r'(?i)\n*Ref.*', '', text)
 
-    # Cắt thành từng câu hỏi: bắt đầu bằng số thứ tự 1., 2., 3., ...
-    blocks = re.split(r'\n(?=\d+\.)', full_text)
+    # Chia dòng
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
     questions = []
+    current_q = {"question": "", "options": [], "answer": ""}
 
-    for block in blocks:
-        block = block.strip()
-        if not block or not re.match(r"^\d+\.", block):
-            continue
+    for line in lines:
+        # Nếu là dòng đáp án
+        if re.match(r"^[a-d]\s*\.", line, re.I) or re.match(r"^\*[a-d]\s*\.", line, re.I):
+            is_correct = line.strip().startswith("*")
+            line_clean = line.replace("*", "").strip()
+            label = line_clean[:2].strip()  # "a."
+            option_text = line_clean[2:].strip()
 
-        # Tách phần số thứ tự ra
-        q_text = re.sub(r"^\d+\.\s*", "", block)
+            if is_correct:
+                current_q["answer"] = option_text
 
-        # Tách câu hỏi và phần đáp án (a,b,c,d)
-        parts = re.split(r'\n(?=[*]?[a-dA-D][\.\)])', q_text)
-        if len(parts) == 1:
-            continue
-        question = parts[0].strip()
-        options_raw = parts[1:]
+            current_q["options"].append(option_text)
 
-        options = []
-        correct = ""
-        for opt in options_raw:
-            opt = opt.strip()
-            m = re.match(r"^\*?([a-dA-D])[\.\)]\s*(.*)", opt)
-            if not m:
-                continue
-            letter = m.group(1).lower()
-            text = m.group(2).strip()
-            opt_text = f"{letter}. {text}"
-            options.append(opt_text)
-            if opt.startswith("*"):
-                correct = opt_text
+        # Nếu là dòng câu hỏi (không bắt đầu bằng a/b/c/d)
+        else:
+            # Nếu đang có câu hỏi cũ thì lưu lại
+            if current_q["question"] and current_q["options"]:
+                questions.append(current_q)
+                current_q = {"question": "", "options": [], "answer": ""}
 
-        if not options:
-            continue
-        if not correct:
-            correct = options[0]
+            current_q["question"] = line
 
-        questions.append({
-            "question": question,
-            "options": options,
-            "answer": correct
-        })
+    # Thêm câu cuối cùng
+    if current_q["question"] and current_q["options"]:
+        questions.append(current_q)
+
+    # Làm sạch
+    for q in questions:
+        q["question"] = q["question"].strip()
+        q["options"] = [o.strip() for o in q["options"] if o.strip()]
+        if not q["answer"] and q["options"]:
+            q["answer"] = q["options"][0]
 
     return questions
 
 
-# ==========================
-# 🧩 ĐỌC FILE CAB BANK (OK)
-# ==========================
-def parse_cabbank(source):
-    doc = Document(source)
-    paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-    questions = []
-    current = {"question": "", "options": [], "answer": ""}
-    opt_pat = re.compile(r'(?<!\S)(?P<star>\*)?(?P<letter>[A-Da-d])\s*(?:[.)])')
-
-    for p in paras:
-        text = p
-        if re.match(r"(?i)^ref[:\.]", text):
-            continue
-        matches = list(opt_pat.finditer(text))
-        if not matches:
-            if current["options"]:
-                if current["question"] and current["options"]:
-                    if not current["answer"]:
-                        current["answer"] = current["options"][0]
-                    questions.append(current)
-                current = {"question": text, "options": [], "answer": ""}
-            else:
-                current["question"] = (current["question"] + " " + text).strip() if current["question"] else text
-            continue
-        pre = text[:matches[0].start()].strip()
-        if pre:
-            if current["options"]:
-                if current["question"] and current["options"]:
-                    if not current["answer"]:
-                        current["answer"] = current["options"][0]
-                    questions.append(current)
-                current = {"question": pre, "options": [], "answer": ""}
-            else:
-                current["question"] = (current["question"] + " " + pre).strip() if current["question"] else pre
-        for idx, m in enumerate(matches):
-            start = m.end()
-            end = matches[idx+1].start() if idx+1 < len(matches) else len(text)
-            opt_body = text[start:end].strip()
-            letter = m.group("letter").lower()
-            opt_text = f"{letter}. {opt_body}"
-            current["options"].append(opt_text)
-            if m.group("star"):
-                current["answer"] = opt_text
-    if current["question"] and current["options"]:
-        if not current["answer"]:
-            current["answer"] = current["options"][0]
-        questions.append(current)
-    return questions
-
-
-# ==========================
-# 🧭 GIAO DIỆN STREAMLIT
-# ==========================
+# =====================================
+# ⚙️ GIAO DIỆN APP
+# =====================================
 st.set_page_config(page_title="Ngân hàng câu hỏi", layout="wide")
-st.title("📘 Ngân hàng trắc nghiệm")
 
+st.markdown("""
+    <style>
+    div.block-container { text-align: center; max-width: 900px; padding-top: 1rem; }
+    h1 {
+        font-size: 28px !important;
+        font-weight: 700 !important;
+        margin-bottom: 1rem !important;
+    }
+    .question {
+        font-size: 18px;
+        font-weight: 500;
+        text-align: left;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        line-height: 1.6;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1>📚 Ngân hàng câu hỏi</h1>", unsafe_allow_html=True)
+
+# =====================================
+# 🧩 CHỌN NGÂN HÀNG
+# =====================================
 bank_choice = st.selectbox(
-    "Chọn ngân hàng:",
-    ["Ngân hàng Luật (Lawbank)", "Ngân hàng Kỹ thuật (Cabbank)"]
+    "Chọn ngân hàng muốn làm:",
+    ["Ngân hàng Luật", "Ngân hàng Kỹ thuật"],
+    index=0
 )
 
 file_path = "lawbank.docx" if "Luật" in bank_choice else "cabbank.docx"
-st.info(f"📂 Đang đọc file: {file_path}")
+remove_ref = "Luật" in bank_choice
 
-questions = parse_lawbank(file_path) if "Luật" in bank_choice else parse_cabbank(file_path)
-
+# =====================================
+# 🧮 ĐỌC CÂU HỎI
+# =====================================
+questions = load_questions(file_path, remove_ref=remove_ref)
 if not questions:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file Word và định dạng.")
+    st.error(f"❌ Không đọc được câu hỏi nào trong file {file_path}. Kiểm tra định dạng trong Word.")
     st.stop()
 
-st.success(f"✅ Đọc được {len(questions)} câu hỏi từ {file_path}.")
+TOTAL = len(questions)
+group_size = 10
+num_groups = math.ceil(TOTAL / group_size)
+group_labels = [f"Câu {i*group_size+1} - {min((i+1)*group_size, TOTAL)}" for i in range(num_groups)]
 
-# ==========================
-# 🔍 TRA CỨU CÂU HỎI
-# ==========================
-st.markdown("## 🔍 Tra cứu câu hỏi")
-search = st.text_input("Nhập từ khóa (vd: maintenance, VAECO...):").strip().lower()
-limit = st.number_input("Giới hạn số câu hiển thị (0 = tất cả):", min_value=0, value=0)
+# =====================================
+# ⚙️ TRẠNG THÁI
+# =====================================
+if "current_bank" not in st.session_state:
+    st.session_state.current_bank = bank_choice
+if "last_group" not in st.session_state:
+    st.session_state.last_group = None
+if "submitted" not in st.session_state:
+    st.session_state.submitted = False
 
-count = 0
-for idx, q in enumerate(questions, start=1):
-    if search and search not in q["question"].lower() and not any(search in o.lower() for o in q["options"]):
-        continue
-    if limit and count >= limit:
-        break
-    st.markdown(f"### {idx}. {q['question']}")
-    for o in q["options"]:
-        mark = "✅" if o == q["answer"] else ""
-        st.write(f"- {o} {mark}")
-    st.markdown("---")
-    count += 1
+if st.session_state.current_bank != bank_choice:
+    for k in list(st.session_state.keys()):
+        if k.startswith("q_"):
+            del st.session_state[k]
+    st.session_state.submitted = False
+    st.session_state.current_bank = bank_choice
 
-st.success(f"Hiển thị {count}/{len(questions)} câu hỏi.")
+# =====================================
+# 📋 CHỌN NHÓM CÂU
+# =====================================
+selected_group = st.selectbox("📘 Bạn muốn làm nhóm câu nào?", group_labels, index=0)
+
+if st.session_state.last_group != (selected_group + file_path):
+    for k in list(st.session_state.keys()):
+        if k.startswith("q_"):
+            del st.session_state[k]
+    st.session_state.submitted = False
+    st.session_state.last_group = selected_group + file_path
+
+start = group_labels.index(selected_group) * group_size
+end = min(start + group_size, TOTAL)
+batch = questions[start:end]
+
+# =====================================
+# 📄 HIỂN THỊ CÂU HỎI
+# =====================================
+if not st.session_state.submitted:
+    st.markdown(f"### 🧩 Nhóm {selected_group}")
+
+    for i, q in enumerate(batch, start=start + 1):
+        st.markdown(f"<div class='question'><b>{i}. {q['question']}</b></div>", unsafe_allow_html=True)
+        st.radio("", q["options"], index=0, key=f"q_{i}")
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+    if st.button("✅ Nộp bài và xem kết quả"):
+        st.session_state.submitted = True
+        st.rerun()
+
+else:
+    score = 0
+    for i, q in enumerate(batch, start=start + 1):
+        selected = st.session_state.get(f"q_{i}")
+        correct = q["answer"]
+        if selected == correct:
+            score += 1
+            st.success(f"{i}. {q['question']}\n\n✅ Đúng ({correct})")
+        else:
+            st.error(f"{i}. {q['question']}\n\n❌ Sai. Đáp án đúng: **{correct}**")
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+    st.subheader(f"🎯 Kết quả: {score}/{len(batch)} câu đúng")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔁 Làm lại nhóm này"):
+            for i in range(start + 1, end + 1):
+                key = f"q_{i}"
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.submitted = False
+            st.rerun()
+    with col2:
+        if st.button("➡️ Sang nhóm khác"):
+            for i in range(start + 1, end + 1):
+                key = f"q_{i}"
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.submitted = False
+            st.rerun()
