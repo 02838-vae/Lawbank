@@ -53,7 +53,7 @@ def parse_cabbank(source):
                 current["question"] = clean_text(pre_text)
 
         for i, m in enumerate(matches):
-            s, e = m.end(), matches[i + 1].start() if i + 1 < len(matches) else len(p)
+            s, e = m.end(), matches[i + 1].start() if i + 1 < len(p) else len(p)
             opt_body = clean_text(p[s:e])
             opt = f"{m.group('letter').lower()}. {opt_body}"
             current["options"].append(opt)
@@ -62,7 +62,6 @@ def parse_cabbank(source):
 
     if current["question"] and current["options"]:
         questions.append(current)
-
     return questions
 
 
@@ -79,27 +78,27 @@ def parse_lawbank(source):
     opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
-        # Bỏ dòng Ref hoặc các dòng tham chiếu
         if re.match(r'^\s*Ref', p, re.I):
             continue
 
         matches = list(opt_pat.finditer(p))
         if not matches:
-            # Không có đáp án trong dòng => phần của câu hỏi
             if current["options"]:
-                # Dòng mới => câu hỏi mới
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                               for k, v in current.items()}
+                    current = {
+                        k: clean_text(v)
+                        if isinstance(v, str)
+                        else [clean_text(x) for x in v]
+                        for k, v in current.items()
+                    }
                     questions.append(current)
                 current = {"question": clean_text(p), "options": [], "answer": ""}
             else:
                 current["question"] += " " + clean_text(p)
             continue
 
-        # Dòng có đáp án
         first_match = matches[0]
         pre_text = p[:first_match.start()].strip()
         if pre_text:
@@ -107,8 +106,12 @@ def parse_lawbank(source):
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                               for k, v in current.items()}
+                    current = {
+                        k: clean_text(v)
+                        if isinstance(v, str)
+                        else [clean_text(x) for x in v]
+                        for k, v in current.items()
+                    }
                     questions.append(current)
                 current = {"question": clean_text(pre_text), "options": [], "answer": ""}
             else:
@@ -116,7 +119,7 @@ def parse_lawbank(source):
 
         for i, m in enumerate(matches):
             s = m.end()
-            e = matches[i+1].start() if i+1 < len(matches) else len(p)
+            e = matches[i + 1].start() if i + 1 < len(matches) else len(p)
             opt_body = clean_text(p[s:e])
             letter = m.group("letter").lower()
             option = f"{letter}. {opt_body}"
@@ -124,12 +127,15 @@ def parse_lawbank(source):
             if m.group("star"):
                 current["answer"] = option
 
-    # Đóng câu cuối
     if current["question"] and current["options"]:
         if not current["answer"]:
             current["answer"] = current["options"][0]
-        current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                   for k, v in current.items()}
+        current = {
+            k: clean_text(v)
+            if isinstance(v, str)
+            else [clean_text(x) for x in v]
+            for k, v in current.items()
+        }
         questions.append(current)
 
     return questions
@@ -144,10 +150,20 @@ st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
     img_base64 = base64.b64encode(f.read()).decode()
 
-# === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ ===
+# === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ & ẨN PHẦN TRẮNG ===
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
+
+/* Ẩn phần trắng đầu trang và padding mặc định */
+.block-container {{
+    padding-top: 0rem !important;
+    padding-bottom: 1rem !important;
+}}
+
+[data-testid="stHeader"], header {{
+    display: none;
+}}
 
 [data-testid="stAppViewContainer"] {{
     background-image: url("data:image/jpeg;base64,{img_base64}");
@@ -169,7 +185,7 @@ h1 {{
     font-size: 2.6em;
     color: #4b3f2f;
     text-shadow: 1px 1px 3px rgba(0,0,0,0.25);
-    margin-top: 0.5em;
+    margin-top: 0.2em;
     position: relative;
     z-index: 1;
 }}
@@ -220,7 +236,6 @@ if not questions:
 # ====================================================
 tab1, tab2 = st.tabs(["🧠 Làm bài", "🔍 Tra cứu toàn bộ câu hỏi"])
 
-# ========== TAB 1 ==========
 with tab1:
     group_size = 10
     total = len(questions)
@@ -258,7 +273,6 @@ with tab1:
             st.session_state.submitted = False
             st.rerun()
 
-# ========== TAB 2 ==========
 with tab2:
     st.markdown("### 🔎 Tra cứu toàn bộ câu hỏi trong ngân hàng")
     df = pd.DataFrame([
