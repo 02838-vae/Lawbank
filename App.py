@@ -1,211 +1,235 @@
+# app.py
 import streamlit as st
 from docx import Document
 import re
 import pandas as pd
 import math
 
-# =======================
-# ⚙️ HÀM CHUNG
-# =======================
+# --------------------------
+# Helpers
+# --------------------------
 def clean_text(s: str) -> str:
-    """Làm sạch chuỗi: loại bỏ khoảng trắng thừa."""
-    return re.sub(r"\s+", " ", s or "").strip()
+    if s is None:
+        return ""
+    return re.sub(r"\s+", " ", s).strip()
 
-def read_docx_paragraphs_with_numbering(source):
-    """
-    Đọc đoạn văn từ .docx, nếu paragraph có numbering (auto-number),
-    thì tự gán số thứ tự để regex nhận diện được.
-    """
-    try:
-        doc = Document(source)
-        paragraphs = []
-        counter = 1
-        for p in doc.paragraphs:
-            text = p.text.strip()
-            if not text:
-                continue
-            # Kiểm tra có phải paragraph đánh số tự động không
-            if p._element.xpath(".//w:numPr"):
-                # Thêm số thứ tự vào đầu dòng nếu chưa có
-                if not re.match(r"^\d+\.", text):
-                    text = f"{counter}. {text}"
-                    counter += 1
-            paragraphs.append(text)
-        return paragraphs
-    except Exception as e:
-        st.error(f"Lỗi đọc file {source}: {e}")
-        return []
+def is_ref_paragraph(text: str) -> bool:
+    # Xác định paragraph chỉ chứa Ref hoặc bắt đầu bằng Ref:
+    return bool(re.match(r'(?i)^\s*ref[:.]', text)) or bool(re.match(r'(?i)^ref\b', text))
 
-# =======================
-# 🧩 PARSER CHO CABBANK
-# =======================
+# --------------------------
+# Parse CABBANK (đã ổn)
+# --------------------------
 def parse_cabbank(source):
     doc = Document(source)
-    paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    paras = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
     questions = []
     current = {"question": "", "options": [], "answer": ""}
 
-    opt_pat = re.compile(r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+')
+    # Match options only when marker appears at start or after whitespace (avoid A/C...)
+    opt_pat = re.compile(r'(?<!\S)(?P<star>\*)?(?P<letter>[A-Da-d])\s*(?:[.\)])\s*')
 
     for p in paras:
-        matches = list(opt_pat.finditer(p))
+        text = p
+        if is_ref_paragraph(text):
+            # bỏ qua dòng Ref
+            continue
+        matches = list(opt_pat.finditer(text))
         if not matches:
+            # không phải đoạn option => câu hỏi (hoặc nối tiếp)
             if current["options"]:
-                if current["question"]:
-                    if not current["answer"] and current["options"]:
+                # đã có options → bắt đầu câu mới
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
                         current["answer"] = current["options"][0]
                     questions.append(current)
-                current = {"question": p, "options": [], "answer": ""}
+                current = {"question": text, "options": [], "answer": ""}
             else:
-                current["question"] += " " + p if current["question"] else p
+                # nối tiếp câu hỏi
+                current["question"] = (current["question"] + " " + text).strip() if current["question"] else text
             continue
 
-        pre = p[:matches[0].start()].strip()
+        # Có ít nhất 1 marker trong paragraph
+        pre = text[:matches[0].start()].strip()
         if pre:
+            # pre có thể là phần câu hỏi (hoặc nếu đã có options thì pre là câu mới)
             if current["options"]:
-                if not current["answer"] and current["options"]:
-                    current["answer"] = current["options"][0]
-                questions.append(current)
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
+                        current["answer"] = current["options"][0]
+                    questions.append(current)
                 current = {"question": pre, "options": [], "answer": ""}
             else:
                 current["question"] = (current["question"] + " " + pre).strip() if current["question"] else pre
 
-        for i, m in enumerate(matches):
+        # Lấy từng option theo các matches
+        for idx, m in enumerate(matches):
             start = m.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(p)
-            opt_body = clean_text(p[start:end])
-            opt_text = f"{m.group('letter').lower()}. {opt_body}"
+            end = matches[idx+1].start() if idx+1 < len(matches) else len(text)
+            body = clean_text(text[start:end])
+            letter = m.group("letter").lower()
+            opt_text = f"{letter}. {body}" if body else f"{letter}."
             current["options"].append(opt_text)
             if m.group("star"):
                 current["answer"] = opt_text
 
+    # finalize last
     if current["question"] and current["options"]:
         if not current["answer"]:
             current["answer"] = current["options"][0]
         questions.append(current)
+
     return questions
 
-# =======================
-# 🧩 PARSER CHO LAWBANK
-# =======================
+# --------------------------
+# Parse LAWBANK (robust)
+# --------------------------
 def parse_lawbank(source):
-    paras = read_docx_paragraphs_with_numbering(source)
-    if not paras:
+    """
+    - Duyệt paragraph tuần tự.
+    - Xác định paragraph bắt đầu câu hỏi khi:
+        * paragraph văn bản bắt đầu bằng '^\d+.'  (ví dụ "1. Who ...")
+      OR
+        * paragraph có numPr (auto-numbering) với ilvl == 0 (top-level list)
+    - Bỏ qua các paragraph Ref...
+    - Ghép các paragraph không phải question-start vào block hiện tại.
+    - Sau khi có block, trích đáp án bằng regex an toàn.
+    """
+    try:
+        doc = Document(source)
+    except Exception as e:
+        st.error(f"Không thể đọc file {source}: {e}")
         return []
 
-    text = "\n".join(paras)
-    text = re.sub(r'(?i)Ref[:.].*?(?=\n\d+\.|\Z)', '', text, flags=re.S)
+    blocks = []
+    current_block = None
+    question_counter = 1
 
-    # Cắt theo câu hỏi có số thứ tự
-    blocks = re.split(r'(?=\n?\d+\.\s)', text)
+    for p in doc.paragraphs:
+        text = p.text.strip()
+        if not text:
+            continue
+
+        # Bỏ qua paragraph ref
+        if is_ref_paragraph(text):
+            continue
+
+        # Kiểm tra numPr và ilvl (nếu có)
+        numPr_nodes = p._element.xpath(".//w:numPr")
+        ilvl = None
+        if numPr_nodes:
+            ilvl_nodes = p._element.xpath(".//w:numPr/w:ilvl")
+            if ilvl_nodes and ilvl_nodes[0].text is not None:
+                try:
+                    ilvl = int(ilvl_nodes[0].text)
+                except:
+                    ilvl = None
+
+        starts_with_number = bool(re.match(r'^\d+\.\s+', text))
+        is_question_start = False
+
+        # Nếu paragraph có numPr và là level 0 => coi là bắt đầu câu hỏi
+        if numPr_nodes and ilvl == 0:
+            is_question_start = True
+        # Nếu văn bản bắt đầu bằng digit + '.' => cũng coi là question start
+        if starts_with_number:
+            is_question_start = True
+
+        if is_question_start:
+            # Lấy số nếu có trong text để đồng bộ counter
+            if starts_with_number:
+                m = re.match(r'^(\d+)\.\s*(.*)$', text)
+                if m:
+                    num = int(m.group(1))
+                    rest = m.group(2).strip()
+                    # đồng bộ counter (tránh sai lệch nếu doc có jump)
+                    question_counter = num + 1
+                    block_text = f"{num}. {rest}" if rest else f"{num}."
+                else:
+                    # đánh số thủ công
+                    block_text = f"{question_counter}. {text}"
+                    question_counter += 1
+            else:
+                # paragraph có numPr level 0 nhưng không chứa số literal -> thêm số do chúng ta đoán
+                block_text = f"{question_counter}. {text}"
+                question_counter += 1
+
+            # finalize previous block nếu có
+            if current_block:
+                blocks.append(current_block)
+            current_block = block_text
+        else:
+            # đoạn không phải bắt đầu câu hỏi: nối vào block hiện tại (nếu có), hoặc tạo block mới (đề phòng file lạ)
+            if current_block:
+                current_block += " " + text
+            else:
+                # trường hợp hiếm: văn bản trước question start, tạo block tạm
+                current_block = text
+
+    # Thêm block cuối cùng
+    if current_block:
+        blocks.append(current_block)
+
+    # Bây giờ xử lý từng block để tách question/options
     questions = []
-
-    opt_pat = re.compile(r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+', flags=re.I)
+    # regex option: chỉ match nếu ký tự nằm ở đầu chuỗi hoặc sau whitespace (không match A/C)
+    opt_pat = re.compile(r'(?<!\S)(?P<star>\*)?(?P<letter>[A-Da-d])\s*(?:[.\)])\s*')
 
     for block in blocks:
-        block = clean_text(block)
-        if not block or not re.match(r'^\d+\.', block):
-            continue
+        b = clean_text(block)
+        # Loại bỏ những mẩu Ref còn sót trong block (nếu Ref đứng giữa)
+        b = re.sub(r'(?i)\bRef[:.]\s*.*$', '', b).strip()
 
-        joined = " ".join(block.splitlines())
-        matches = list(opt_pat.finditer(joined))
+        # Tìm tất cả marker option
+        matches = list(opt_pat.finditer(b))
         if not matches:
+            # Nếu block không có options, skip (không phải câu trắc nghiệm)
             continue
 
-        q_text = clean_text(joined[:matches[0].start()])
-        opts, ans = [], ""
+        # câu hỏi là phần trước marker đầu tiên, bỏ số thứ tự ở đầu
+        first = matches[0]
+        qpart = b[: first.start()]
+        # bỏ prefix số "N."
+        qpart = re.sub(r'^\d+\.\s*', '', qpart).strip()
+        qtext = clean_text(qpart)
 
-        for i, m in enumerate(matches):
+        opts = []
+        answer = ""
+        for idx, m in enumerate(matches):
             start = m.end()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(joined)
-            opt_body = clean_text(joined[start:end])
-            opt_text = f"{m.group('letter').lower()}. {opt_body}"
-            opts.append(opt_text)
+            end = matches[idx+1].start() if idx+1 < len(matches) else len(b)
+            opt_body = clean_text(b[start:end])
+            letter = m.group("letter").lower()
+            opt_full = f"{letter}. {opt_body}" if opt_body else f"{letter}."
+            opts.append(opt_full)
             if m.group("star"):
-                ans = opt_text
+                answer = opt_full
 
-        if not ans and opts:
-            ans = opts[0]
+        if not answer and opts:
+            answer = opts[0]
 
-        questions.append({
-            "question": q_text,
-            "options": opts,
-            "answer": ans
-        })
+        questions.append({"question": qtext, "options": opts, "answer": answer})
 
     return questions
 
-# =======================
-# 🖥️ GIAO DIỆN STREAMLIT
-# =======================
-st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
-st.title("📚 Ngân hàng trắc nghiệm")
+# --------------------------
+# UI chính
+# --------------------------
+st.set_page_config(page_title="Ngân hàng trắc nghiệm (Lawbank & Cabbank)", layout="wide")
+st.title("📚 Ngân hàng câu hỏi")
+
+# uploader (tùy chọn)
+uploaded = st.file_uploader("Upload file .docx (nếu muốn test file riêng)", type=["docx"])
 
 bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Kỹ thuật", "Ngân hàng Luật"])
-source = "cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx"
 
+source = uploaded if uploaded is not None else ("cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx")
+
+# parse theo bank
 if "Kỹ thuật" in bank_choice:
     questions = parse_cabbank(source)
 else:
     questions = parse_lawbank(source)
 
-if not questions:
-    st.error("❌ Không đọc được câu hỏi nào — kiểm tra lại file .docx có đúng định dạng numbering hoặc đáp án không.")
-    st.stop()
-
-st.success(f"✅ Đã đọc {len(questions)} câu hỏi từ {bank_choice}")
-
-# =======================
-# GIAO DIỆN TAB
-# =======================
-tab1, tab2 = st.tabs(["🧠 Làm bài", "🔍 Tra cứu"])
-
-with tab1:
-    group_size = 10
-    total = len(questions)
-    groups = [f"Câu {i*group_size+1}-{min((i+1)*group_size, total)}" for i in range(math.ceil(total/group_size))]
-    grp = st.selectbox("Chọn nhóm câu:", groups)
-    idx = groups.index(grp)
-    start, end = idx * group_size, min((idx + 1) * group_size, total)
-    batch = questions[start:end]
-
-    if "submitted" not in st.session_state:
-        st.session_state.submitted = False
-
-    if not st.session_state.submitted:
-        for i, q in enumerate(batch, start=start + 1):
-            st.markdown(f"**{i}. {q['question']}**")
-            st.radio("", q["options"], key=f"q_{i}")
-            st.markdown("---")
-        if st.button("✅ Nộp bài"):
-            st.session_state.submitted = True
-            st.rerun()
-    else:
-        score = 0
-        for i, q in enumerate(batch, start=start + 1):
-            sel = st.session_state.get(f"q_{i}")
-            if clean_text(sel) == clean_text(q["answer"]):
-                st.success(f"{i}. ✅ {q['question']} — {q['answer']}")
-                score += 1
-            else:
-                st.error(f"{i}. ❌ {q['question']} — Đúng: {q['answer']}")
-        st.subheader(f"🎯 Kết quả: {score}/{len(batch)}")
-        if st.button("🔁 Làm lại nhóm này"):
-            for i in range(start + 1, end + 1):
-                st.session_state.pop(f"q_{i}", None)
-            st.session_state.submitted = False
-            st.rerun()
-
-with tab2:
-    df = pd.DataFrame([
-        {
-            "STT": i + 1,
-            "Câu hỏi": q["question"],
-            **{f"Đáp án {chr(65+j)}": q["options"][j] if len(q["options"]) > j else "" for j in range(4)},
-            "Đáp án đúng": q["answer"],
-        }
-        for i, q in enumerate(questions)
-    ])
-    st.dataframe(df, use_container_width=True)
-    csv = df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("⬇️ Tải CSV", csv, "ngan_hang.csv", "text/csv")
+# Debug: hiển thị thông tin chi tiết giúp rà lỗi
+with st
