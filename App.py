@@ -1,4 +1,3 @@
-# app.py — bản có chức năng tra cứu đầy đủ
 import streamlit as st
 from docx import Document
 import re
@@ -9,10 +8,7 @@ import pandas as pd
 # ⚙️ HÀM CHUNG
 # ====================================================
 def clean_text(s: str) -> str:
-    if s is None:
-        return ""
-    return re.sub(r'\s+', ' ', s).strip()
-
+    return re.sub(r'\s+', ' ', s or '').strip()
 
 def read_docx_paragraphs(source):
     """Đọc file Word và trả về danh sách đoạn text không rỗng."""
@@ -21,12 +17,11 @@ def read_docx_paragraphs(source):
     except Exception as e:
         st.error(f"Không thể đọc file .docx: {e}")
         return []
-    paras = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-    return paras
+    return [p.text.strip() for p in doc.paragraphs if p.text.strip()]
 
 
 # ====================================================
-# 🧩 PARSER NGÂN HÀNG KỸ THUẬT (CABBANK)
+# 🧩 PARSER NGÂN HÀNG KỸ THUẬT (CABBANK) – giữ nguyên
 # ====================================================
 def parse_cabbank(source):
     paras = read_docx_paragraphs(source)
@@ -35,7 +30,7 @@ def parse_cabbank(source):
 
     questions = []
     current = {"question": "", "options": [], "answer": ""}
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.\s*|\)\s*)')
+    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.|\))\s*')
 
     for p in paras:
         matches = list(opt_pat.finditer(p))
@@ -44,13 +39,12 @@ def parse_cabbank(source):
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current["question"] = clean_text(current["question"])
-                    current["options"] = [clean_text(o) for o in current["options"]]
-                    current["answer"] = clean_text(current["answer"])
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(p), "options": [], "answer": ""}
             else:
-                current["question"] = (current["question"] + " " + p).strip() if current["question"] else clean_text(p)
+                current["question"] += " " + clean_text(p)
             continue
 
         first_match = matches[0]
@@ -60,33 +54,29 @@ def parse_cabbank(source):
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current["question"] = clean_text(current["question"])
-                    current["options"] = [clean_text(o) for o in current["options"]]
-                    current["answer"] = clean_text(current["answer"])
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(pre_text), "options": [], "answer": ""}
             else:
-                current["question"] = (current["question"] + " " + pre_text).strip() if current["question"] else clean_text(pre_text)
+                current["question"] += " " + clean_text(pre_text)
 
-        for idx, m in enumerate(matches):
+        for i, m in enumerate(matches):
             start = m.end()
-            end = matches[idx+1].start() if idx+1 < len(matches) else len(p)
-            opt_body = p[start:end].strip()
-            opt_body = clean_text(opt_body)
+            end = matches[i+1].start() if i+1 < len(matches) else len(p)
+            opt = clean_text(p[start:end])
             letter = m.group("letter").lower()
-            option_text = f"{letter}. {opt_body}" if opt_body else f"{letter}."
-            current["options"].append(option_text)
+            text = f"{letter}. {opt}"
+            current["options"].append(text)
             if m.group("star"):
-                current["answer"] = option_text
+                current["answer"] = text
 
     if current["question"] and current["options"]:
         if not current["answer"]:
             current["answer"] = current["options"][0]
-        current["question"] = clean_text(current["question"])
-        current["options"] = [clean_text(o) for o in current["options"]]
-        current["answer"] = clean_text(current["answer"])
+        current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                   for k, v in current.items()}
         questions.append(current)
-
     return questions
 
 
@@ -98,35 +88,64 @@ def parse_lawbank(source):
     if not paras:
         return []
 
-    text = "\n".join(paras)
-    blocks = re.finditer(r'(?:(?:^)|\n)\s*(\d+)\s*[.)]\s*(.*?)(?=(?:\n\s*\d+\s*[.)]\s*)|\Z)', text, flags=re.S)
     questions = []
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.\s*|\)\s*)')
+    current = {"question": "", "options": [], "answer": ""}
+    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s*')
 
-    for b in blocks:
-        body = b.group(2).strip()
-        body_head = re.split(r'\bRef[:.]', body, flags=re.I)[0].strip()
-        matches = list(opt_pat.finditer(body_head))
-        if not matches:
+    for p in paras:
+        # Bỏ dòng Ref hoặc các dòng tham chiếu
+        if re.match(r'^\s*Ref', p, re.I):
             continue
-        first = matches[0]
-        q_text = body_head[:first.start()].strip()
-        q_text = clean_text(q_text)
-        opts, answer = [], ""
-        for idx, m in enumerate(matches):
+
+        matches = list(opt_pat.finditer(p))
+        if not matches:
+            # Không có đáp án trong dòng => phần của câu hỏi
+            if current["options"]:
+                # Dòng mới => câu hỏi mới
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
+                        current["answer"] = current["options"][0]
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
+                    questions.append(current)
+                current = {"question": clean_text(p), "options": [], "answer": ""}
+            else:
+                current["question"] += " " + clean_text(p)
+            continue
+
+        # Dòng có đáp án
+        first_match = matches[0]
+        pre_text = p[:first_match.start()].strip()
+        if pre_text:
+            if current["options"]:
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
+                        current["answer"] = current["options"][0]
+                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                               for k, v in current.items()}
+                    questions.append(current)
+                current = {"question": clean_text(pre_text), "options": [], "answer": ""}
+            else:
+                current["question"] += " " + clean_text(pre_text)
+
+        for i, m in enumerate(matches):
             s = m.end()
-            e = matches[idx+1].start() if idx+1 < len(matches) else len(body_head)
-            opt_body = body_head[s:e].strip()
-            opt_body = clean_text(opt_body)
+            e = matches[i+1].start() if i+1 < len(matches) else len(p)
+            opt_body = clean_text(p[s:e])
             letter = m.group("letter").lower()
-            option_text = f"{letter}. {opt_body}" if opt_body else f"{letter}."
-            opts.append(option_text)
+            option = f"{letter}. {opt_body}"
+            current["options"].append(option)
             if m.group("star"):
-                answer = option_text
-        if opts:
-            if not answer:
-                answer = opts[0]
-            questions.append({"question": q_text, "options": opts, "answer": answer})
+                current["answer"] = option
+
+    # Đóng câu cuối
+    if current["question"] and current["options"]:
+        if not current["answer"]:
+            current["answer"] = current["options"][0]
+        current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
+                   for k, v in current.items()}
+        questions.append(current)
+
     return questions
 
 
@@ -140,11 +159,7 @@ bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Kỹ thuật", "
 source = "cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx"
 
 # Đọc dữ liệu
-if "Kỹ thuật" in bank_choice:
-    questions = parse_cabbank(source)
-else:
-    questions = parse_lawbank(source)
-
+questions = parse_cabbank(source) if "Kỹ thuật" in bank_choice else parse_lawbank(source)
 if not questions:
     st.error("Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc đường dẫn.")
     st.stop()
@@ -156,9 +171,7 @@ st.success(f"✅ Đã đọc được {len(questions)} câu hỏi từ {bank_cho
 # ====================================================
 tab1, tab2 = st.tabs(["🧠 Làm bài", "🔍 Tra cứu toàn bộ câu hỏi"])
 
-# ====================================================
-# TAB 1: LÀM BÀI
-# ====================================================
+# TAB 1: Làm bài
 with tab1:
     group_size = 10
     TOTAL = len(questions)
@@ -199,13 +212,9 @@ with tab1:
             st.session_state.submitted = False
             st.rerun()
 
-# ====================================================
-# TAB 2: TRA CỨU CÂU HỎI
-# ====================================================
+# TAB 2: Tra cứu
 with tab2:
     st.markdown("### 🔎 Tra cứu toàn bộ câu hỏi trong ngân hàng")
-
-    # Tạo DataFrame
     df = pd.DataFrame([
         {
             "STT": i + 1,
@@ -220,13 +229,10 @@ with tab2:
     ])
 
     keyword = st.text_input("🔍 Tìm theo từ khóa (câu hỏi hoặc đáp án):").strip().lower()
-    if keyword:
-        df_filtered = df[df.apply(lambda row: keyword in " ".join(row.values.astype(str)).lower(), axis=1)]
-    else:
-        df_filtered = df
+    df_filtered = df[df.apply(lambda r: keyword in " ".join(r.values.astype(str)).lower(), axis=1)] if keyword else df
 
     st.write(f"Hiển thị {len(df_filtered)}/{len(df)} câu hỏi")
     st.dataframe(df_filtered, use_container_width=True)
 
     csv = df_filtered.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("⬇️ Tải xuống danh sách (CSV)", csv, "ngan_hang_cau_hoi.csv", "text/csv")
+    st.download_button("⬇️ Tải danh sách (CSV)", csv, "ngan_hang_cau_hoi.csv", "text/csv")
