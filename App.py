@@ -90,7 +90,7 @@ def parse_lawbank(source):
 
     questions = []
     current = {"question": "", "options": [], "answer": ""}
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s*')
+    opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
         # Bỏ dòng Ref hoặc các dòng tham chiếu
