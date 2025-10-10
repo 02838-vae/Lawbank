@@ -11,14 +11,29 @@ def clean_text(s: str) -> str:
     """Làm sạch chuỗi: loại bỏ khoảng trắng thừa."""
     return re.sub(r"\s+", " ", s or "").strip()
 
-def read_docx_paragraphs(source):
-    """Đọc toàn bộ đoạn văn từ file .docx."""
+def read_docx_paragraphs_with_numbering(source):
+    """
+    Đọc đoạn văn từ .docx, nếu paragraph có numbering (auto-number),
+    thì tự gán số thứ tự để regex nhận diện được.
+    """
     try:
         doc = Document(source)
-        paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        return paras
+        paragraphs = []
+        counter = 1
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            # Kiểm tra có phải paragraph đánh số tự động không
+            if p._element.xpath(".//w:numPr"):
+                # Thêm số thứ tự vào đầu dòng nếu chưa có
+                if not re.match(r"^\d+\.", text):
+                    text = f"{counter}. {text}"
+                    counter += 1
+            paragraphs.append(text)
+        return paragraphs
     except Exception as e:
-        st.error(f"Không thể đọc file {source}: {e}")
+        st.error(f"Lỗi đọc file {source}: {e}")
         return []
 
 # =======================
@@ -30,7 +45,6 @@ def parse_cabbank(source):
     questions = []
     current = {"question": "", "options": [], "answer": ""}
 
-    # Chỉ tách nếu a., b., c., d. nằm đầu dòng hoặc sau khoảng trắng
     opt_pat = re.compile(r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
@@ -75,23 +89,18 @@ def parse_cabbank(source):
 # 🧩 PARSER CHO LAWBANK
 # =======================
 def parse_lawbank(source):
-    paras = read_docx_paragraphs(source)
+    paras = read_docx_paragraphs_with_numbering(source)
     if not paras:
         return []
 
     text = "\n".join(paras)
-    # Xóa dòng "Ref." — cả khi liền với câu
     text = re.sub(r'(?i)Ref[:.].*?(?=\n\d+\.|\Z)', '', text, flags=re.S)
 
-    # Chia block theo số thứ tự
+    # Cắt theo câu hỏi có số thứ tự
     blocks = re.split(r'(?=\n?\d+\.\s)', text)
     questions = []
 
-    # Regex cực chặt: chỉ match nếu ở đầu dòng hoặc có khoảng trắng trước
-    opt_pat = re.compile(
-        r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+',
-        flags=re.I
-    )
+    opt_pat = re.compile(r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+', flags=re.I)
 
     for block in blocks:
         block = clean_text(block)
@@ -103,7 +112,6 @@ def parse_lawbank(source):
         if not matches:
             continue
 
-        # Câu hỏi = phần trước đáp án đầu tiên
         q_text = clean_text(joined[:matches[0].start()])
         opts, ans = [], ""
 
@@ -142,7 +150,7 @@ else:
     questions = parse_lawbank(source)
 
 if not questions:
-    st.error("❌ Không đọc được câu hỏi nào, kiểm tra lại file .docx")
+    st.error("❌ Không đọc được câu hỏi nào — kiểm tra lại file .docx có đúng định dạng numbering hoặc đáp án không.")
     st.stop()
 
 st.success(f"✅ Đã đọc {len(questions)} câu hỏi từ {bank_choice}")
