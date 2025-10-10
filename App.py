@@ -21,56 +21,63 @@ def is_ref_line(text: str) -> bool:
 # PARSER CABBANK (GIỮ NGUYÊN, KHÔNG SỬA LOGIC)
 # Parser đơn giản, tương tự bản bạn nói là đã chạy OK.
 # ---------------------------
-def load_cabbank(path_or_file):
-    try:
-        doc = Document(path_or_file)
-    except Exception as e:
-        st.error(f"Không thể đọc file cabbank: {e}")
+def parse_cabbank(source):
+    paras = read_docx_paragraphs(source)
+    if not paras:
         return []
-
-    # Gộp các paragraph không rỗng
-    paras = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-    # Chèn newline trước marker đáp án (nếu dính liền)
-    text = "\n".join(paras)
-    text = re.sub(r'(?<!\n)(?=\*?\s*[A-Da-d]\s*(?:[.\)]))', '\n', text, flags=re.I)
-
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
     questions = []
     current = {"question": "", "options": [], "answer": ""}
+    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.\s*|\)\s*)')
 
-    opt_re = re.compile(r'^\*?\s*([A-Da-d])\s*(?:[.\)])\s*(.*)$', flags=re.S)
-    for line in lines:
-        # skip REF lines if any
-        if is_ref_line(line):
+    for p in paras:
+        matches = list(opt_pat.finditer(p))
+        if not matches:
+            if current["options"]:
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
+                        current["answer"] = current["options"][0]
+                    current["question"] = clean_text(current["question"])
+                    current["options"] = [clean_text(o) for o in current["options"]]
+                    current["answer"] = clean_text(current["answer"])
+                    questions.append(current)
+                current = {"question": clean_text(p), "options": [], "answer": ""}
+            else:
+                current["question"] = (current["question"] + " " + p).strip() if current["question"] else clean_text(p)
             continue
 
-        m = opt_re.match(line)
-        if m:
-            # option line
-            letter = m.group(1).lower()
-            body = clean_text(m.group(2))
-            opt_text = f"{letter}. {body}" if body else f"{letter}."
-            if line.lstrip().startswith("*"):
-                current["answer"] = opt_text
-            current["options"].append(opt_text)
-        else:
-            # question or continuation
-            # if we already have a question + options, then this starts a new question
-            if current["question"] and current["options"]:
-                # finalize previous
-                if not current["answer"] and current["options"]:
-                    current["answer"] = current["options"][0]
-                questions.append(current)
-                current = {"question": line, "options": [], "answer": ""}
+        first_match = matches[0]
+        pre_text = p[:first_match.start()].strip()
+        if pre_text:
+            if current["options"]:
+                if current["question"] and current["options"]:
+                    if not current["answer"]:
+                        current["answer"] = current["options"][0]
+                    current["question"] = clean_text(current["question"])
+                    current["options"] = [clean_text(o) for o in current["options"]]
+                    current["answer"] = clean_text(current["answer"])
+                    questions.append(current)
+                current = {"question": clean_text(pre_text), "options": [], "answer": ""}
             else:
-                # append to current question (may be multi-line)
-                current["question"] = (current["question"] + " " + line).strip() if current["question"] else line
+                current["question"] = (current["question"] + " " + pre_text).strip() if current["question"] else clean_text(pre_text)
 
-    # finalize last
+        for idx, m in enumerate(matches):
+            start = m.end()
+            end = matches[idx+1].start() if idx+1 < len(matches) else len(p)
+            opt_body = p[start:end].strip()
+            opt_body = clean_text(opt_body)
+            letter = m.group("letter").lower()
+            option_text = f"{letter}. {opt_body}" if opt_body else f"{letter}."
+            current["options"].append(option_text)
+            if m.group("star"):
+                current["answer"] = option_text
+
     if current["question"] and current["options"]:
-        if not current["answer"] and current["options"]:
+        if not current["answer"]:
             current["answer"] = current["options"][0]
+        current["question"] = clean_text(current["question"])
+        current["options"] = [clean_text(o) for o in current["options"]]
+        current["answer"] = clean_text(current["answer"])
         questions.append(current)
 
     return questions
