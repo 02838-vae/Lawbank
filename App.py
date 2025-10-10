@@ -4,44 +4,34 @@ import re
 import pandas as pd
 import math
 
-# ====================================================
+# =======================
 # ⚙️ HÀM CHUNG
-# ====================================================
+# =======================
 def clean_text(s: str) -> str:
-    if not s:
-        return ""
-    return re.sub(r"\s+", " ", s).strip()
+    """Làm sạch chuỗi: loại bỏ khoảng trắng thừa."""
+    return re.sub(r"\s+", " ", s or "").strip()
 
-def read_docx_paragraphs_with_numbering(source):
-    """Đọc file .docx và thêm số nếu có numbering."""
+def read_docx_paragraphs(source):
+    """Đọc toàn bộ đoạn văn từ file .docx."""
     try:
         doc = Document(source)
+        paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        return paras
     except Exception as e:
         st.error(f"Không thể đọc file {source}: {e}")
         return []
-    paras = []
-    counter = 1
-    for p in doc.paragraphs:
-        text = p.text.strip()
-        if not text:
-            continue
-        if p.style.name.startswith("List") or p._element.xpath(".//w:numPr"):
-            if not re.match(r"^\d+\.", text):
-                text = f"{counter}. {text}"
-                counter += 1
-        paras.append(text)
-    return paras
 
-# ====================================================
-# 🧩 PARSER CABBANK (chuẩn, đã ổn định)
-# ====================================================
+# =======================
+# 🧩 PARSER CHO CABBANK
+# =======================
 def parse_cabbank(source):
     doc = Document(source)
     paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     questions = []
     current = {"question": "", "options": [], "answer": ""}
 
-    opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
+    # Chỉ tách nếu a., b., c., d. nằm đầu dòng hoặc sau khoảng trắng
+    opt_pat = re.compile(r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
         matches = list(opt_pat.finditer(p))
@@ -53,7 +43,7 @@ def parse_cabbank(source):
                     questions.append(current)
                 current = {"question": p, "options": [], "answer": ""}
             else:
-                current["question"] = (current["question"] + " " + p).strip() if current["question"] else p
+                current["question"] += " " + p if current["question"] else p
             continue
 
         pre = p[:matches[0].start()].strip()
@@ -81,29 +71,25 @@ def parse_cabbank(source):
         questions.append(current)
     return questions
 
-# ====================================================
-# 🧩 PARSER LAWBANK (đã sửa lỗi cắt sai “Form 6020”)
-# ====================================================
+# =======================
+# 🧩 PARSER CHO LAWBANK
+# =======================
 def parse_lawbank(source):
-    paras = read_docx_paragraphs_with_numbering(source)
+    paras = read_docx_paragraphs(source)
     if not paras:
         return []
 
     text = "\n".join(paras)
-
-    # Xóa Ref: (dù liền câu hay xuống dòng)
+    # Xóa dòng "Ref." — cả khi liền với câu
     text = re.sub(r'(?i)Ref[:.].*?(?=\n\d+\.|\Z)', '', text, flags=re.S)
 
     # Chia block theo số thứ tự
-    blocks = re.split(r'(?=\n?\d+\.)', text)
+    blocks = re.split(r'(?=\n?\d+\.\s)', text)
     questions = []
 
-    # Regex cực kỳ chặt chẽ:
-    # - Không bắt trong A/C, C/S
-    # - Cho phép * trước ký tự
-    # - Không nuốt ký tự số ngay sau chấm
+    # Regex cực chặt: chỉ match nếu ở đầu dòng hoặc có khoảng trắng trước
     opt_pat = re.compile(
-        r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)](?=\s)',
+        r'(?:(?<=\s)|^)(?P<star>\*)?(?P<letter>[A-Da-d])[\.\)]\s+',
         flags=re.I
     )
 
@@ -117,6 +103,7 @@ def parse_lawbank(source):
         if not matches:
             continue
 
+        # Câu hỏi = phần trước đáp án đầu tiên
         q_text = clean_text(joined[:matches[0].start()])
         opts, ans = [], ""
 
@@ -128,14 +115,21 @@ def parse_lawbank(source):
             opts.append(opt_text)
             if m.group("star"):
                 ans = opt_text
+
         if not ans and opts:
             ans = opts[0]
-        questions.append({"question": q_text, "options": opts, "answer": ans})
+
+        questions.append({
+            "question": q_text,
+            "options": opts,
+            "answer": ans
+        })
+
     return questions
 
-# ====================================================
+# =======================
 # 🖥️ GIAO DIỆN STREAMLIT
-# ====================================================
+# =======================
 st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 st.title("📚 Ngân hàng trắc nghiệm")
 
@@ -153,9 +147,9 @@ if not questions:
 
 st.success(f"✅ Đã đọc {len(questions)} câu hỏi từ {bank_choice}")
 
-# ====================================================
-# TAB
-# ====================================================
+# =======================
+# GIAO DIỆN TAB
+# =======================
 tab1, tab2 = st.tabs(["🧠 Làm bài", "🔍 Tra cứu"])
 
 with tab1:
