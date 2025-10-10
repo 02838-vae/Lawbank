@@ -232,4 +232,17 @@ else:
     questions = parse_lawbank(source)
 
 # Debug: hiển thị thông tin chi tiết giúp rà lỗi
-with st
+with st.expander("🔧 Thông tin debug (số liệu nội bộ)"):
+    try:
+        doc = Document(source)
+        total_paras = len([p for p in doc.paragraphs if p.text and p.text.strip()])
+        st.write(f"Số paragraph (non-empty) trong file: {total_paras}")
+    except Exception as e:
+        st.write("Không thể đọc số paragraph:", e)
+    st.write(f"Số câu đã parse: {len(questions)}")
+    if len(questions) and len(questions) < 500:
+        st.write("3 câu đầu parsed:")
+        for i, q in enumerate(questions[:3], 1):
+            st.write(f"{i}. Q: {q['question']}")
+            for o in q['options']:
+                st.write("   - " + o + ("  ✅" if o == q["answer"] else ""))
