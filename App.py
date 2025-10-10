@@ -1,9 +1,9 @@
+# app.py — bản hoàn chỉnh với nền mờ & căn giữa tiêu đề
 import streamlit as st
 from docx import Document
 import re
 import math
 import pandas as pd
-import base64
 
 # ====================================================
 # ⚙️ HÀM CHUNG
@@ -98,11 +98,10 @@ def parse_lawbank(source):
     if not paras:
         return []
 
-    # Gộp toàn bộ text và xóa dòng Ref:
     text = "\n".join(paras)
-    text = re.sub(r'\bRef[:.].*?(?=(?:\n|$))', '', text, flags=re.I)
-
+    text = re.sub(r'\bRef[:.].*?(?=(?:\n|$))', '', text, flags=re.I)  # Xóa dòng Ref
     opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\s.)]+')
+
     blocks = re.split(r'\n(?=\d+\s*[.)])', text)
     questions = []
 
@@ -110,14 +109,12 @@ def parse_lawbank(source):
         block = block.strip()
         if not block:
             continue
-
-        # Xóa số thứ tự đầu dòng (vd: 1. hoặc 1) )
+        # Bỏ số thứ tự đầu
         block = re.sub(r'^\d+\s*[.)]\s*', '', block)
 
         matches = list(opt_pat.finditer(block))
         if not matches:
             continue
-
         q_text = clean_text(block[:matches[0].start()])
         opts, answer = [], ""
 
@@ -125,10 +122,6 @@ def parse_lawbank(source):
             s = m.end()
             e = matches[idx+1].start() if idx+1 < len(matches) else len(block)
             opt_body = clean_text(block[s:e])
-
-            # Gộp lại nếu trong đáp án có xuống dòng (tránh tách sai như câu 2, 4)
-            opt_body = re.sub(r'\n+', ' ', opt_body)
-
             letter = m.group("letter").lower()
             option_text = f"{letter}. {opt_body}"
             opts.append(option_text)
@@ -148,76 +141,38 @@ def parse_lawbank(source):
 # ====================================================
 st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 
-# ========== CSS VINTAGE STYLE ==========
-with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
-    img_base64 = base64.b64encode(f.read()).decode()
+# CSS nền mờ + căn giữa tiêu đề
+st.markdown(
+    """
+    <style>
+    [data-testid="stAppViewContainer"] {
+        background-image: url("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg");
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
+    [data-testid="stAppViewContainer"]::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(255,255,255,0.7);
+        backdrop-filter: blur(6px);
+        z-index: 0;
+    }
+    h1 {
+        text-align: center !important;
+        font-size: 2.3em !important;
+        font-weight: 700 !important;
+        color: #0f172a !important;
+        z-index: 1;
+        position: relative;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
-
-[data-testid="stAppViewContainer"] {{
-    background-image: url("data:image/jpeg;base64,{img_base64}");
-    background-size: cover;
-    background-attachment: fixed;
-    background-position: center;
-}}
-[data-testid="stAppViewContainer"]::before {{
-    content: "";
-    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(250,245,235,0.72);   /* nền sáng hơn để ảnh rõ hơn */
-    backdrop-filter: blur(3px);
-    z-index: 0;
-}}
-
-h1 {{
-    text-align: center;
-    font-family: 'Playfair Display', serif;
-    font-size: 2.6em;
-    color: #4b3f2f;
-    text-shadow: 1px 1px 3px rgba(0,0,0,0.25);
-    margin-top: 0.5em;
-    position: relative;
-    z-index: 1;
-}}
-
-label, .stSelectbox label {{
-    font-family: 'Crimson Text', serif;
-    font-size: 1.3em;
-    color: #3b2f23;
-}}
-div[data-baseweb="select"] {{
-    font-size: 1.2em;
-}}
-.stButton>button {{
-    background-color: #bca37f !important;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    font-size: 1.1em;
-    font-family: 'Crimson Text', serif;
-    transition: 0.2s ease-in-out;
-}}
-.stButton>button:hover {{
-    background-color: #a68963 !important;
-    transform: scale(1.03);
-}}
-.block-container {{
-    background: rgba(255,255,250,0.9);
-    border: 1px solid #d6c7a1;
-    box-shadow: 0 0 15px rgba(90,70,40,0.2);
-    border-radius: 15px;
-    padding: 2rem;
-    position: relative;
-    z-index: 1;
-}}
-</style>
-""", unsafe_allow_html=True)
-
-# ====================================================
-# 🏷️ TIÊU ĐỀ
-# ====================================================
-st.markdown("<h1>📜 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
+st.markdown("<h1>📚 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
 
 # ====================================================
 # 🧩 CHỌN NGÂN HÀNG
@@ -225,14 +180,13 @@ st.markdown("<h1>📜 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
 bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Kỹ thuật", "Ngân hàng Luật"])
 source = "cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx"
 
-# Đọc dữ liệu
 if "Kỹ thuật" in bank_choice:
     questions = parse_cabbank(source)
 else:
     questions = parse_lawbank(source)
 
 if not questions:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file .docx hoặc đường dẫn.")
+    st.error("Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc đường dẫn.")
     st.stop()
 
 # ====================================================
