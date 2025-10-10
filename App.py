@@ -2,6 +2,7 @@ import streamlit as st
 from docx import Document
 import re
 import pandas as pd
+import math
 
 # ====================================================
 # ⚙️ HÀM CHUNG
