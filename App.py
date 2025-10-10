@@ -145,6 +145,7 @@ with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
     img_base64 = base64.b64encode(f.read()).decode()
 
 # === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ & ẨN PHẦN TRẮNG ===
+# === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ & TỐI ƯU CHO MOBILE ===
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
@@ -168,7 +169,7 @@ st.markdown(f"""
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: absolute; inset: 0;
-    background: rgba(250,245,235,0.78);
+    background: rgba(250,245,235,0.83);
     backdrop-filter: blur(3px);
     z-index: 0;
 }}
@@ -176,25 +177,38 @@ st.markdown(f"""
 h1 {{
     text-align: center;
     font-family: 'Playfair Display', serif;
-    font-size: 2.6em;
-    color: #4b3f2f;
-    text-shadow: 1px 1px 3px rgba(0,0,0,0.25);
-    margin-top: 0.2em;
+    font-size: 2.4em;
+    color: #3d2d1b;
+    text-shadow: 1px 1px 3px rgba(255,255,255,0.3);
+    margin-top: 0.3em;
     position: relative;
     z-index: 1;
 }}
 
-label, .stSelectbox label {{
+label, .stSelectbox label, .stTextInput label {{
     font-family: 'Crimson Text', serif;
     font-size: 1.25em;
     color: #3b2f23;
 }}
-div[data-baseweb="select"] {{
+
+div[data-baseweb="select"], .stTextInput input {{
     font-size: 1.15em;
+    color: #2e241a !important;
 }}
+
+.stMarkdown, .stRadio, .stDataFrame, .stText, .stTextInput, .stSelectbox {{
+    color: #2e241a !important;
+    font-family: 'Crimson Text', serif;
+    font-size: 1.1em;
+}}
+
+.stRadio label p {{
+    color: #2e241a !important;
+}}
+
 .stButton>button {{
     background-color: #bca37f !important;
-    color: white;
+    color: white !important;
     border-radius: 10px;
     font-size: 1.05em;
     font-family: 'Crimson Text', serif;
@@ -205,6 +219,7 @@ div[data-baseweb="select"] {{
 }}
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # ====================================================
