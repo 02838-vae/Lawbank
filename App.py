@@ -1,4 +1,3 @@
-# app.py — phiên bản đã fix đọc numbering tự động trong LAWBank
 import streamlit as st
 from docx import Document
 import re
@@ -9,12 +8,14 @@ import pandas as pd
 # ⚙️ HÀM CHUNG
 # ====================================================
 def clean_text(s: str) -> str:
+    """Làm sạch chuỗi: bỏ khoảng trắng dư, xuống dòng thừa."""
     if s is None:
         return ""
     return re.sub(r'\s+', ' ', s).strip()
 
+
 def read_docx_paragraphs_with_numbering(source):
-    """Đọc tất cả đoạn văn trong .docx, nếu bị numbering tự động thì thêm số thủ công."""
+    """Đọc các đoạn trong file .docx, thêm số thứ tự nếu là numbering."""
     try:
         doc = Document(source)
     except Exception as e:
@@ -27,9 +28,8 @@ def read_docx_paragraphs_with_numbering(source):
         text = p.text.strip()
         if not text:
             continue
-        # Nếu paragraph thuộc list numbering, thêm số vào đầu
+        # Nếu đoạn này thuộc danh sách (list numbering)
         if p.style.name.startswith("List") or p._element.xpath(".//w:numPr"):
-            # Kiểm tra xem có sẵn số chưa
             if not re.match(r"^\d+\.", text):
                 text = f"{counter}. {text}"
                 counter += 1
@@ -37,14 +37,16 @@ def read_docx_paragraphs_with_numbering(source):
     return paragraphs
 
 # ====================================================
-# 🧩 PARSER CABBANK (KỸ THUẬT)
+# 🧩 PARSER CABBANK
 # ====================================================
 def parse_cabbank(source):
-    from docx import Document
-    paras = [p.text.strip() for p in Document(source).paragraphs if p.text.strip()]
+    doc = Document(source)
+    paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     questions = []
     current = {"question": "", "options": [], "answer": ""}
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.\s*|\)\s*)')
+
+    # regex chuẩn hơn: chỉ khớp nếu a–d đứng đầu hoặc sau khoảng trắng, không nằm trong từ như A/C
+    opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
         matches = list(opt_pat.finditer(p))
@@ -88,7 +90,7 @@ def parse_cabbank(source):
     return questions
 
 # ====================================================
-# 🧩 PARSER LAWBANK (LUẬT)
+# 🧩 PARSER LAWBANK (ĐÃ FIX)
 # ====================================================
 def parse_lawbank(source):
     paras = read_docx_paragraphs_with_numbering(source)
@@ -99,15 +101,14 @@ def parse_lawbank(source):
     text = "\n".join(paras)
 
     # Xóa dòng Ref...
-    text = re.sub(r'(?i)Ref.*', '', text)
-
-    # Thêm xuống dòng trước các số mới
-    text = re.sub(r'(?<=\d)\.(?=\s*[A-Z])', '. ', text)
-    text = re.sub(r'\n(?=\d+\.)', '\n', text)
+    text = re.sub(r'(?i)Ref[:.].*', '', text)
 
     # Chia block theo số thứ tự
     blocks = re.split(r'(?=\n?\d+\.)', text)
     questions = []
+
+    # Regex đáp án (chặt hơn, tránh A/C)
+    opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for block in blocks:
         block = block.strip()
@@ -115,7 +116,6 @@ def parse_lawbank(source):
             continue
 
         joined = " ".join(block.splitlines())
-        opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s*')
         matches = list(opt_pat.finditer(joined))
         if not matches:
             continue
@@ -126,7 +126,8 @@ def parse_lawbank(source):
             start = m.end()
             end = matches[idx+1].start() if idx+1 < len(matches) else len(joined)
             opt_text = clean_text(joined[start:end])
-            option = f"{m.group('letter').lower()}. {opt_text}"
+            letter = m.group("letter").lower()
+            option = f"{letter}. {opt_text}"
             opts.append(option)
             if m.group("star"):
                 ans = option
@@ -147,7 +148,10 @@ bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Kỹ thuật", "
 source = "cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx"
 
 # Đọc dữ liệu
-questions = parse_cabbank(source) if "Kỹ thuật" in bank_choice else parse_lawbank(source)
+if "Kỹ thuật" in bank_choice:
+    questions = parse_cabbank(source)
+else:
+    questions = parse_lawbank(source)
 
 if not questions:
     st.error("❌ Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc định dạng.")
