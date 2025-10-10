@@ -1,9 +1,9 @@
-# app.py — bản hoàn thiện phong cách vintage + nền mờ hiển thị đúng
 import streamlit as st
 from docx import Document
 import re
 import math
 import pandas as pd
+import base64
 
 # ====================================================
 # ⚙️ HÀM CHUNG
@@ -98,10 +98,11 @@ def parse_lawbank(source):
     if not paras:
         return []
 
+    # Gộp toàn bộ text và xóa dòng Ref:
     text = "\n".join(paras)
-    text = re.sub(r'\bRef[:.].*?(?=(?:\n|$))', '', text, flags=re.I)  # Xóa dòng Ref
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\s.)]+')
+    text = re.sub(r'\bRef[:.].*?(?=(?:\n|$))', '', text, flags=re.I)
 
+    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\s.)]+')
     blocks = re.split(r'\n(?=\d+\s*[.)])', text)
     questions = []
 
@@ -109,11 +110,14 @@ def parse_lawbank(source):
         block = block.strip()
         if not block:
             continue
+
+        # Xóa số thứ tự đầu dòng (vd: 1. hoặc 1) )
         block = re.sub(r'^\d+\s*[.)]\s*', '', block)
 
         matches = list(opt_pat.finditer(block))
         if not matches:
             continue
+
         q_text = clean_text(block[:matches[0].start()])
         opts, answer = [], ""
 
@@ -121,6 +125,10 @@ def parse_lawbank(source):
             s = m.end()
             e = matches[idx+1].start() if idx+1 < len(matches) else len(block)
             opt_body = clean_text(block[s:e])
+
+            # Gộp lại nếu trong đáp án có xuống dòng (tránh tách sai như câu 2, 4)
+            opt_body = re.sub(r'\n+', ' ', opt_body)
+
             letter = m.group("letter").lower()
             option_text = f"{letter}. {opt_body}"
             opts.append(option_text)
@@ -141,9 +149,10 @@ def parse_lawbank(source):
 st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 
 # ========== CSS VINTAGE STYLE ==========
-st.markdown(
-    """
-    st.markdown(f"""
+with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
+    img_base64 = base64.b64encode(f.read()).decode()
+
+st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
 
@@ -156,8 +165,8 @@ st.markdown(
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(250,245,235,0.75);   /* Giảm opacity để ảnh rõ hơn (0.85 -> 0.75) */
-    backdrop-filter: blur(3px);           /* Giảm độ mờ từ 6px -> 3px */
+    background: rgba(250,245,235,0.72);   /* nền sáng hơn để ảnh rõ hơn */
+    backdrop-filter: blur(3px);
     z-index: 0;
 }}
 
@@ -193,10 +202,8 @@ div[data-baseweb="select"] {{
     background-color: #a68963 !important;
     transform: scale(1.03);
 }}
-
-/* Hiệu ứng khung cổ điển nhẹ quanh nhóm câu hỏi */
 .block-container {{
-    background: rgba(255,255,250,0.88);
+    background: rgba(255,255,250,0.9);
     border: 1px solid #d6c7a1;
     box-shadow: 0 0 15px rgba(90,70,40,0.2);
     border-radius: 15px;
@@ -206,8 +213,6 @@ div[data-baseweb="select"] {{
 }}
 </style>
 """, unsafe_allow_html=True)
-
-)
 
 # ====================================================
 # 🏷️ TIÊU ĐỀ
@@ -220,6 +225,7 @@ st.markdown("<h1>📜 Ngân hàng trắc nghiệm</h1>", unsafe_allow_html=True)
 bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Kỹ thuật", "Ngân hàng Luật"])
 source = "cabbank.docx" if "Kỹ thuật" in bank_choice else "lawbank.docx"
 
+# Đọc dữ liệu
 if "Kỹ thuật" in bank_choice:
     questions = parse_cabbank(source)
 else:
