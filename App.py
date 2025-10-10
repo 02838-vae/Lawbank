@@ -1,4 +1,4 @@
-# app.py — bản có chức năng tra cứu đầy đủ
+# app.py — bản fix đầy đủ cho cả LAWBank và CABBANK
 import streamlit as st
 from docx import Document
 import re
@@ -13,7 +13,6 @@ def clean_text(s: str) -> str:
         return ""
     return re.sub(r'\s+', ' ', s).strip()
 
-
 def read_docx_paragraphs(source):
     """Đọc file Word và trả về danh sách đoạn text không rỗng."""
     try:
@@ -24,9 +23,8 @@ def read_docx_paragraphs(source):
     paras = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
     return paras
 
-
 # ====================================================
-# 🧩 PARSER NGÂN HÀNG KỸ THUẬT (CABBANK)
+# 🧩 PARSER CABBANK (KỸ THUẬT)
 # ====================================================
 def parse_cabbank(source):
     paras = read_docx_paragraphs(source)
@@ -89,46 +87,66 @@ def parse_cabbank(source):
 
     return questions
 
-
 # ====================================================
-# 🧩 PARSER NGÂN HÀNG LUẬT (LAWBANK)
+# 🧩 PARSER LAWBANK (LUẬT)
 # ====================================================
 def parse_lawbank(source):
+    """Đọc ngân hàng câu hỏi dạng đánh số 1., 2., 3... có dòng REF, xóa REF và xác định đáp án *a/*b/..."""
     paras = read_docx_paragraphs(source)
     if not paras:
         return []
 
+    # Gộp các đoạn lại, thêm xuống dòng giữa các đoạn
     text = "\n".join(paras)
-    blocks = re.finditer(r'(?:(?:^)|\n)\s*(\d+)\s*[.)]\s*(.*?)(?=(?:\n\s*\d+\s*[.)]\s*)|\Z)', text, flags=re.S)
-    questions = []
-    opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.\s*|\)\s*)')
 
-    for b in blocks:
-        body = b.group(2).strip()
-        body_head = re.split(r'\bRef[:.]', body, flags=re.I)[0].strip()
-        matches = list(opt_pat.finditer(body_head))
+    # Chuẩn hóa: nếu thiếu xuống dòng giữa các câu hỏi (ví dụ "1.Who..." dính vào "2.What...")
+    text = re.sub(r'(?<=\d)\.(?=\S)', '. ', text)
+
+    # Tách thành từng block câu hỏi theo số thứ tự
+    blocks = re.split(r'\n(?=\d+\.)', text)
+    questions = []
+
+    for block in blocks:
+        block = block.strip()
+        if not block or not re.match(r'^\d+\.', block):
+            continue
+
+        # Xoá dòng Ref... nếu có
+        block = re.sub(r'(?i)Ref.*', '', block)
+
+        # Tách dòng đầu làm câu hỏi
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
+        if not lines:
+            continue
+
+        # Ghép các dòng lại nếu Word ngắt giữa câu hỏi / đáp án
+        joined = " ".join(lines)
+        # Tìm các đáp án a,b,c,d trong chuỗi
+        opt_pat = re.compile(r'(?P<star>\*)?\s*(?P<letter>[A-Da-d])\s*(?:\.|\))\s*')
+        matches = list(opt_pat.finditer(joined))
         if not matches:
             continue
-        first = matches[0]
-        q_text = body_head[:first.start()].strip()
-        q_text = clean_text(q_text)
+
+        # Câu hỏi là phần trước đáp án đầu tiên
+        q_text = clean_text(joined[:matches[0].start()])
+
         opts, answer = [], ""
         for idx, m in enumerate(matches):
-            s = m.end()
-            e = matches[idx+1].start() if idx+1 < len(matches) else len(body_head)
-            opt_body = body_head[s:e].strip()
-            opt_body = clean_text(opt_body)
+            start = m.end()
+            end = matches[idx+1].start() if idx+1 < len(matches) else len(joined)
+            opt_body = clean_text(joined[start:end])
             letter = m.group("letter").lower()
-            option_text = f"{letter}. {opt_body}" if opt_body else f"{letter}."
+            option_text = f"{letter}. {opt_body}"
             opts.append(option_text)
             if m.group("star"):
                 answer = option_text
+
         if opts:
             if not answer:
                 answer = opts[0]
             questions.append({"question": q_text, "options": opts, "answer": answer})
-    return questions
 
+    return questions
 
 # ====================================================
 # 🖥️ GIAO DIỆN STREAMLIT
@@ -146,7 +164,7 @@ else:
     questions = parse_lawbank(source)
 
 if not questions:
-    st.error("Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc đường dẫn.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra file .docx hoặc định dạng.")
     st.stop()
 
 st.success(f"✅ Đã đọc được {len(questions)} câu hỏi từ {bank_choice}.")
@@ -203,9 +221,8 @@ with tab1:
 # TAB 2: TRA CỨU CÂU HỎI
 # ====================================================
 with tab2:
-    st.markdown("### 🔎 Tra cứu toàn bộ câu hỏi trong ngân hàng")
+    st.markdown("### 🔎 Tra cứu toàn bộ câu hỏi")
 
-    # Tạo DataFrame
     df = pd.DataFrame([
         {
             "STT": i + 1,
