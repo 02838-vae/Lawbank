@@ -53,7 +53,6 @@ def parse_cabbank(source):
                 current["question"] = clean_text(pre_text)
 
         for i, m in enumerate(matches):
-            # <-- FIX: so s, e with matches length, not len(p)
             s, e = m.end(), matches[i + 1].start() if i + 1 < len(matches) else len(p)
             opt_body = clean_text(p[s:e])
             opt = f"{m.group('letter').lower()}. {opt_body}"
@@ -63,6 +62,7 @@ def parse_cabbank(source):
 
     if current["question"] and current["options"]:
         questions.append(current)
+
     return questions
 
 
@@ -79,27 +79,23 @@ def parse_lawbank(source):
     opt_pat = re.compile(r'(?<![A-Za-z0-9/])(?P<star>\*)?\s*(?P<letter>[A-Da-d])[\.\)]\s+')
 
     for p in paras:
-        # Bỏ dòng Ref hoặc các dòng tham chiếu
         if re.match(r'^\s*Ref', p, re.I):
             continue
 
         matches = list(opt_pat.finditer(p))
         if not matches:
-            # Không có đáp án trong dòng => phần của câu hỏi
             if current["options"]:
-                # Dòng mới => câu hỏi mới
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                               for k, v in current.items()}
+                    current = {k: clean_text(v) if isinstance(v, str)
+                               else [clean_text(x) for x in v] for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(p), "options": [], "answer": ""}
             else:
                 current["question"] += " " + clean_text(p)
             continue
 
-        # Dòng có đáp án
         first_match = matches[0]
         pre_text = p[:first_match.start()].strip()
         if pre_text:
@@ -107,8 +103,8 @@ def parse_lawbank(source):
                 if current["question"] and current["options"]:
                     if not current["answer"]:
                         current["answer"] = current["options"][0]
-                    current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                               for k, v in current.items()}
+                    current = {k: clean_text(v) if isinstance(v, str)
+                               else [clean_text(x) for x in v] for k, v in current.items()}
                     questions.append(current)
                 current = {"question": clean_text(pre_text), "options": [], "answer": ""}
             else:
@@ -124,12 +120,11 @@ def parse_lawbank(source):
             if m.group("star"):
                 current["answer"] = option
 
-    # Đóng câu cuối
     if current["question"] and current["options"]:
         if not current["answer"]:
             current["answer"] = current["options"][0]
-        current = {k: clean_text(v) if isinstance(v, str) else [clean_text(x) for x in v]
-                   for k, v in current.items()}
+        current = {k: clean_text(v) if isinstance(v, str)
+                   else [clean_text(x) for x in v] for k, v in current.items()}
         questions.append(current)
 
     return questions
@@ -140,26 +135,18 @@ def parse_lawbank(source):
 # ====================================================
 st.set_page_config(page_title="Ngân hàng trắc nghiệm", layout="wide")
 
-# === ĐỌC ẢNH NỀN ===
+# === ẢNH NỀN ===
 with open("IMG-a6d291ba3c85a15a6dd4201070bb76e5-V.jpg", "rb") as f:
     img_base64 = base64.b64encode(f.read()).decode()
 
-# === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ & ẨN PHẦN TRẮNG ===
-# === CSS NỀN VINTAGE + CĂN GIỮA TIÊU ĐỀ & TỐI ƯU CHO MOBILE ===
+# === CSS PHONG CÁCH VINTAGE ===
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Crimson+Text&display=swap');
-
-/* Ẩn phần trắng đầu trang và padding mặc định */
-.block-container {{
-    padding-top: 0rem !important;
-    padding-bottom: 1rem !important;
+html, body, [data-testid="stAppViewContainer"] {{
+    margin: 0;
+    padding: 0;
 }}
-
-[data-testid="stHeader"], header {{
-    display: none;
-}}
-
 [data-testid="stAppViewContainer"] {{
     background-image: url("data:image/jpeg;base64,{img_base64}");
     background-size: cover;
@@ -169,46 +156,34 @@ st.markdown(f"""
 [data-testid="stAppViewContainer"]::before {{
     content: "";
     position: absolute; inset: 0;
-    background: rgba(250,245,235,0.83);
+    background: rgba(250,245,235,0.78);
     backdrop-filter: blur(3px);
     z-index: 0;
 }}
-
 h1 {{
     text-align: center;
     font-family: 'Playfair Display', serif;
-    font-size: 2.4em;
-    color: #3d2d1b;
-    text-shadow: 1px 1px 3px rgba(255,255,255,0.3);
-    margin-top: 0.3em;
+    font-size: 2.6em;
+    color: #4b3f2f;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.25);
+    margin-top: 0.2em;
     position: relative;
     z-index: 1;
 }}
-
-label, .stSelectbox label, .stTextInput label {{
+label, .stSelectbox label {{
     font-family: 'Crimson Text', serif;
     font-size: 1.25em;
-    color: #3b2f23;
+    color: #2e241a;
 }}
-
-div[data-baseweb="select"], .stTextInput input {{
-    font-size: 1.15em;
-    color: #2e241a !important;
-}}
-
-.stMarkdown, .stRadio, .stDataFrame, .stText, .stTextInput, .stSelectbox {{
-    color: #2e241a !important;
-    font-family: 'Crimson Text', serif;
+div[data-baseweb="select"] {{
     font-size: 1.1em;
 }}
-
-.stRadio label p {{
+.stRadio label {{
     color: #2e241a !important;
 }}
-
 .stButton>button {{
     background-color: #bca37f !important;
-    color: white !important;
+    color: white;
     border-radius: 10px;
     font-size: 1.05em;
     font-family: 'Crimson Text', serif;
@@ -219,7 +194,6 @@ div[data-baseweb="select"], .stTextInput input {{
 }}
 </style>
 """, unsafe_allow_html=True)
-
 
 
 # ====================================================
@@ -245,10 +219,12 @@ if not questions:
 # ====================================================
 tab1, tab2 = st.tabs(["🧠 Làm bài", "🔍 Tra cứu toàn bộ câu hỏi"])
 
+# ========== TAB 1 ==========
 with tab1:
     group_size = 10
     total = len(questions)
-    groups = [f"Câu {i*group_size+1} - {min((i+1)*group_size, total)}" for i in range(math.ceil(total / group_size))]
+    groups = [f"Câu {i*group_size+1} - {min((i+1)*group_size, total)}"
+              for i in range(math.ceil(total / group_size))]
     selected = st.selectbox("Chọn nhóm câu:", groups)
     idx = groups.index(selected)
     start, end = idx * group_size, min((idx + 1) * group_size, total)
@@ -268,12 +244,33 @@ with tab1:
     else:
         score = 0
         for i, q in enumerate(batch, start=start + 1):
-            chosen = st.session_state.get(f"q_{i}")
-            if clean_text(chosen) == clean_text(q["answer"]):
-                st.success(f"{i}. ✅ {q['question']} — {q['answer']}")
+            selected = st.session_state.get(f"q_{i}")
+            correct = clean_text(q["answer"])
+            is_correct = clean_text(selected) == correct
+
+            # hiển thị tiêu đề câu hỏi
+            st.markdown(f"### {i}. {q['question']}")
+
+            # hiển thị từng đáp án
+            for opt in q["options"]:
+                opt_clean = clean_text(opt)
+                style = ""
+                if opt_clean == correct:
+                    style = "color: #008000; font-weight: bold;"  # xanh cho đúng
+                elif opt_clean == clean_text(selected):
+                    style = "color: #b22222; font-weight: bold; text-decoration: underline;"  # đỏ cho chọn sai
+                else:
+                    style = "color: #2e241a;"
+                st.markdown(f"<div style='{style}'>{opt}</div>", unsafe_allow_html=True)
+
+            if is_correct:
+                st.success(f"✅ Đúng — {q['answer']}")
                 score += 1
             else:
-                st.error(f"{i}. ❌ {q['question']} — Đáp án đúng: {q['answer']}")
+                st.error(f"❌ Sai — Đáp án đúng: {q['answer']}")
+
+            st.markdown("---")
+
         st.subheader(f"🎯 Kết quả: {score}/{len(batch)}")
 
         if st.button("🔁 Làm lại nhóm này"):
@@ -282,6 +279,8 @@ with tab1:
             st.session_state.submitted = False
             st.rerun()
 
+
+# ========== TAB 2 ==========
 with tab2:
     st.markdown("### 🔎 Tra cứu toàn bộ câu hỏi trong ngân hàng")
     df = pd.DataFrame([
