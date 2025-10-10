@@ -1,80 +1,77 @@
-# app.py
 import streamlit as st
 from docx import Document
 import re
 import math
 
-
-# =====================================================
-# 🧩 HÀM ĐỌC FILE LAW BANK (đánh số câu hỏi, *a là đúng)
-# =====================================================
+# ==========================
+# 🧩 ĐỌC FILE LAW BANK
+# ==========================
 def parse_lawbank(source):
     try:
         doc = Document(source)
     except Exception as e:
-        st.error(f"❌ Lỗi đọc file: {e}")
+        st.error(f"Lỗi đọc file: {e}")
         return []
 
-    # Lấy toàn bộ dòng text không rỗng
-    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    # Lấy toàn bộ text (ghép các đoạn lại)
+    full_text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
 
-    # Bỏ các dòng "Ref:" hoặc "REF:"
-    lines = [l for l in lines if not re.match(r"(?i)^ref[:\.]", l)]
+    # Bỏ dòng Ref
+    full_text = re.sub(r"(?i)Ref[:].*?(?=\n\d+\.|$)", "", full_text)
 
+    # Gom các đáp án a,b,c,d nếu dính liền nhau (a....b....c....)
+    full_text = re.sub(r'(?<!\n)(?=[*]?[a-dA-D][\.\)])', '\n', full_text)
+
+    # Cắt thành từng câu hỏi: bắt đầu bằng số thứ tự 1., 2., 3., ...
+    blocks = re.split(r'\n(?=\d+\.)', full_text)
     questions = []
-    current_q = None
-    current_opts = []
 
-    def save_current():
-        """Lưu lại câu hiện tại vào danh sách"""
-        nonlocal current_q, current_opts
-        if current_q and current_opts:
-            correct = ""
-            clean_opts = []
-            for opt in current_opts:
-                m = re.match(r"^\*?([a-dA-D])[\.\)]\s*(.*)", opt)
-                if m:
-                    text = f"{m.group(1).lower()}. {m.group(2).strip()}"
-                    clean_opts.append(text)
-                    if opt.strip().startswith("*"):
-                        correct = text
-            if not correct and clean_opts:
-                correct = clean_opts[0]
-            questions.append({
-                "question": current_q.strip(),
-                "options": clean_opts,
-                "answer": correct
-            })
-        current_q = None
-        current_opts = []
+    for block in blocks:
+        block = block.strip()
+        if not block or not re.match(r"^\d+\.", block):
+            continue
 
-    for line in lines:
-        # Nếu là dòng bắt đầu bằng số thứ tự => câu hỏi mới
-        if re.match(r"^\d+\.", line):
-            # Lưu câu trước (nếu có)
-            save_current()
-            # Bắt đầu câu mới
-            current_q = re.sub(r"^\d+\.\s*", "", line).strip()
-        # Nếu là dòng đáp án (a,b,c,d)
-        elif re.match(r"^\*?[a-dA-D][\.\)]", line):
-            current_opts.append(line)
-        else:
-            # Nối vào câu hỏi (phòng trường hợp câu hỏi dài nhiều dòng)
-            if current_q:
-                current_q += " " + line
-            elif current_opts:
-                # nếu đang ở trong options mà có dòng tiếp theo không phải a,b,c,d thì nối
-                current_opts[-1] += " " + line
+        # Tách phần số thứ tự ra
+        q_text = re.sub(r"^\d+\.\s*", "", block)
 
-    # Lưu câu cuối
-    save_current()
+        # Tách câu hỏi và phần đáp án (a,b,c,d)
+        parts = re.split(r'\n(?=[*]?[a-dA-D][\.\)])', q_text)
+        if len(parts) == 1:
+            continue
+        question = parts[0].strip()
+        options_raw = parts[1:]
+
+        options = []
+        correct = ""
+        for opt in options_raw:
+            opt = opt.strip()
+            m = re.match(r"^\*?([a-dA-D])[\.\)]\s*(.*)", opt)
+            if not m:
+                continue
+            letter = m.group(1).lower()
+            text = m.group(2).strip()
+            opt_text = f"{letter}. {text}"
+            options.append(opt_text)
+            if opt.startswith("*"):
+                correct = opt_text
+
+        if not options:
+            continue
+        if not correct:
+            correct = options[0]
+
+        questions.append({
+            "question": question,
+            "options": options,
+            "answer": correct
+        })
 
     return questions
 
 
-# =====================================================
-# 🧩 HÀM ĐỌC FILE CAB BANK (đã chạy ổn, giữ nguyên)
-# =====================================================
+# ==========================
+# 🧩 ĐỌC FILE CAB BANK (OK)
+# ==========================
 def parse_cabbank(source):
     doc = Document(source)
     paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
@@ -123,29 +120,33 @@ def parse_cabbank(source):
     return questions
 
 
-# =====================================================
+# ==========================
 # 🧭 GIAO DIỆN STREAMLIT
-# =====================================================
+# ==========================
 st.set_page_config(page_title="Ngân hàng câu hỏi", layout="wide")
 st.title("📘 Ngân hàng trắc nghiệm")
 
-bank_choice = st.selectbox("Chọn ngân hàng:", ["Ngân hàng Luật (Lawbank)", "Ngân hàng Kỹ thuật (Cabbank)"])
+bank_choice = st.selectbox(
+    "Chọn ngân hàng:",
+    ["Ngân hàng Luật (Lawbank)", "Ngân hàng Kỹ thuật (Cabbank)"]
+)
 
 file_path = "lawbank.docx" if "Luật" in bank_choice else "cabbank.docx"
-
 st.info(f"📂 Đang đọc file: {file_path}")
 
 questions = parse_lawbank(file_path) if "Luật" in bank_choice else parse_cabbank(file_path)
 
 if not questions:
-    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại định dạng file hoặc ví dụ.")
+    st.error("❌ Không đọc được câu hỏi nào. Kiểm tra lại file Word và định dạng.")
     st.stop()
 
-st.success(f"✅ Đọc được {len(questions)} câu hỏi.")
+st.success(f"✅ Đọc được {len(questions)} câu hỏi từ {file_path}.")
 
-# Dò câu / Tra cứu
+# ==========================
+# 🔍 TRA CỨU CÂU HỎI
+# ==========================
 st.markdown("## 🔍 Tra cứu câu hỏi")
-search = st.text_input("Nhập từ khóa tìm kiếm (vd: maintenance, VAECO...):").strip().lower()
+search = st.text_input("Nhập từ khóa (vd: maintenance, VAECO...):").strip().lower()
 limit = st.number_input("Giới hạn số câu hiển thị (0 = tất cả):", min_value=0, value=0)
 
 count = 0
